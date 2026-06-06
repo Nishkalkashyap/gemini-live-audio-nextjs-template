@@ -1,15 +1,57 @@
 "use client";
 
 import {
+  EndSensitivity,
   GoogleGenAI,
   Modality,
+  StartSensitivity,
   type LiveServerMessage,
   type Session
 } from "@google/genai";
 import { FormEvent, useEffect, useRef, useState } from "react";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger
+} from "@/components/ui/select";
 
 const INPUT_RATE = 16000;
 const OUTPUT_RATE = 24000;
+
+const VOICE_OPTIONS = [
+  { name: "Zephyr", description: "Bright" },
+  { name: "Puck", description: "Upbeat" },
+  { name: "Charon", description: "Informative" },
+  { name: "Kore", description: "Firm" },
+  { name: "Fenrir", description: "Excitable" },
+  { name: "Leda", description: "Youthful" },
+  { name: "Orus", description: "Firm" },
+  { name: "Aoede", description: "Breezy" },
+  { name: "Callirrhoe", description: "Easy-going" },
+  { name: "Autonoe", description: "Bright" },
+  { name: "Enceladus", description: "Breathy" },
+  { name: "Iapetus", description: "Clear" },
+  { name: "Umbriel", description: "Easy-going" },
+  { name: "Algieba", description: "Smooth" },
+  { name: "Despina", description: "Smooth" },
+  { name: "Erinome", description: "Clear" },
+  { name: "Algenib", description: "Gravelly" },
+  { name: "Rasalgethi", description: "Informative" },
+  { name: "Laomedeia", description: "Upbeat" },
+  { name: "Achernar", description: "Soft" },
+  { name: "Alnilam", description: "Firm" },
+  { name: "Schedar", description: "Even" },
+  { name: "Gacrux", description: "Mature" },
+  { name: "Pulcherrima", description: "Forward" },
+  { name: "Achird", description: "Friendly" },
+  { name: "Zubenelgenubi", description: "Casual" },
+  { name: "Vindemiatrix", description: "Gentle" },
+  { name: "Sadachbia", description: "Lively" },
+  { name: "Sadaltager", description: "Knowledgeable" },
+  { name: "Sulafat", description: "Warm" }
+] as const;
 
 type AppConfig = {
   model: string;
@@ -89,6 +131,7 @@ export function RealtimeVoiceChat() {
       const config = (await response.json()) as AppConfig;
       setModel(config.model);
       setVoiceName(config.voiceName);
+      voiceNameRef.current = config.voiceName;
     } catch {
       // Keep defaults if config cannot be loaded.
     }
@@ -100,9 +143,7 @@ export function RealtimeVoiceChat() {
     try {
       const tokenPayload = await createLiveToken();
       setModel(tokenPayload.model);
-      setVoiceName(tokenPayload.voiceName);
       modelRef.current = tokenPayload.model;
-      voiceNameRef.current = tokenPayload.voiceName;
 
       await setupPlayback();
       await setupCapture();
@@ -151,7 +192,15 @@ export function RealtimeVoiceChat() {
           ]
         },
         inputAudioTranscription: {},
-        outputAudioTranscription: {}
+        outputAudioTranscription: {},
+        realtimeInputConfig: {
+          automaticActivityDetection: {
+            disabled: false,
+            startOfSpeechSensitivity: StartSensitivity.START_SENSITIVITY_HIGH,
+            endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_HIGH,
+            silenceDurationMs: 250
+          }
+        }
       },
       callbacks: {
         onopen: () => {
@@ -255,14 +304,14 @@ export function RealtimeVoiceChat() {
       appendModelTranscript(content.outputTranscription.text);
     }
 
-  if (content?.modelTurn?.parts) {
-    for (const part of content.modelTurn.parts) {
-      if (part.text) {
-        appendModelTranscript(part.text);
-      }
-      if (part.inlineData?.data) {
-        playPcmChunk(base64ToArrayBuffer(part.inlineData.data));
-      }
+    if (content?.modelTurn?.parts) {
+      for (const part of content.modelTurn.parts) {
+        if (part.text) {
+          appendModelTranscript(part.text);
+        }
+        if (part.inlineData?.data) {
+          playPcmChunk(base64ToArrayBuffer(part.inlineData.data));
+        }
       }
     }
 
@@ -360,6 +409,11 @@ export function RealtimeVoiceChat() {
     sessionRef.current.sendRealtimeInput({ text });
     addMessage("user", text);
     setTextInput("");
+  }
+
+  function handleVoiceChange(nextVoiceName: string) {
+    setVoiceName(nextVoiceName);
+    voiceNameRef.current = nextVoiceName;
   }
 
   function addMessage(role: Message["role"], text: string) {
@@ -475,6 +529,39 @@ export function RealtimeVoiceChat() {
           <div>
             <dt>Model</dt>
             <dd>{model}</dd>
+          </div>
+          <div>
+            <dt>Voice</dt>
+            <dd>
+              <Select
+                value={voiceName}
+                onValueChange={handleVoiceChange}
+                disabled={isStarting || isLive}
+              >
+                <SelectTrigger className="voice-select-trigger" aria-label="Voice">
+                  <span className="voice-select-current">{voiceName}</span>
+                </SelectTrigger>
+                <SelectContent className="voice-select-content" align="start">
+                  <SelectGroup>
+                    {VOICE_OPTIONS.map((voice) => (
+                      <SelectItem
+                        className="voice-select-item"
+                        key={voice.name}
+                        textValue={`${voice.name} ${voice.description}`}
+                        value={voice.name}
+                      >
+                        <span className="voice-select-option">
+                          <span className="voice-select-name">{voice.name}</span>
+                          <span className="voice-select-description">
+                            {voice.description}
+                          </span>
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </dd>
           </div>
           <div>
             <dt>Input audio</dt>

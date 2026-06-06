@@ -1,4 +1,4 @@
-import { Modality } from "@google/genai";
+import { EndSensitivity, Modality, StartSensitivity } from "@google/genai";
 import { getGeminiClient, getLiveConfig } from "@/lib/gemini";
 
 export const runtime = "nodejs";
@@ -25,7 +25,15 @@ export async function POST() {
           model,
           config: {
             responseModalities: [Modality.AUDIO],
-            temperature: 0.7
+            temperature: 0.7,
+            realtimeInputConfig: {
+              automaticActivityDetection: {
+                disabled: false,
+                startOfSpeechSensitivity: StartSensitivity.START_SENSITIVITY_HIGH,
+                endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_HIGH,
+                silenceDurationMs: 250
+              }
+            }
           }
         },
         httpOptions: { apiVersion: "v1alpha" }
