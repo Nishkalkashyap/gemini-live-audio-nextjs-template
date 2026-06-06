@@ -84,11 +84,52 @@ function Transcript() {
       <div className="transcript-inner">
         {messages.map((message) => (
           <div className={`message ${message.role}`} key={message.id}>
-            {message.text}
+            {message.role === "tool" ? <ToolMessage message={message} /> : message.text}
           </div>
         ))}
       </div>
     </div>
+  );
+}
+
+function ToolMessage({
+  message
+}: {
+  message: {
+    text: string;
+    toolName?: string;
+    toolRequestMarkdown?: string;
+    toolResponseMarkdown?: string;
+    toolStatus?: "running" | "done" | "error";
+  };
+}) {
+  const status = message.toolStatus ?? "done";
+
+  return (
+    <details className="tool-accordion">
+      <summary>
+        <span className={`tool-status-dot ${status}`} aria-hidden="true" />
+        <span>{message.text}</span>
+        {message.toolName ? <span className="tool-name">{message.toolName}</span> : null}
+      </summary>
+      <div className="tool-accordion-body">
+        {message.toolRequestMarkdown ? (
+          <ToolMarkdownBlock label="Request" value={message.toolRequestMarkdown} />
+        ) : null}
+        {message.toolResponseMarkdown ? (
+          <ToolMarkdownBlock label="Response" value={message.toolResponseMarkdown} />
+        ) : null}
+      </div>
+    </details>
+  );
+}
+
+function ToolMarkdownBlock({ label, value }: { label: string; value: string }) {
+  return (
+    <section className="tool-markdown-block">
+      <div className="tool-markdown-label">{label}</div>
+      <pre>{value}</pre>
+    </section>
   );
 }
 

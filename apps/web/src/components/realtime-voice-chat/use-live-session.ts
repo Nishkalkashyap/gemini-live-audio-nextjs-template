@@ -4,6 +4,7 @@ import {
   EndSensitivity,
   type FunctionCall,
   GoogleGenAI,
+  type GroundingMetadata,
   Modality,
   StartSensitivity,
   type LiveServerMessage,
@@ -31,6 +32,7 @@ export function useLiveSession(): VoiceChatContextValue {
   const sessionRef = useRef<Session | undefined>(undefined);
   const isActiveRef = useRef(false);
   const sessionGenerationRef = useRef(0);
+  const displayedGroundingSignaturesRef = useRef(new Set<string>());
   const modelRef = useRef(model);
   const voiceNameRef = useRef(voiceName);
 
@@ -230,6 +232,10 @@ export function useLiveSession(): VoiceChatContextValue {
       return;
     }
 
+    if (content?.groundingMetadata) {
+      addGoogleSearchToolMessage(content.groundingMetadata);
+    }
+
     if (content?.interrupted) {
       audio.resetPlayback();
       chatThreads.resetActiveTranscripts();
@@ -353,17 +359,31 @@ export function useLiveSession(): VoiceChatContextValue {
     }
     const activeSession = session;
 
-    chatThreads.addMessage(
-      "system",
-      `Using ${functionCalls.map((functionCall) => functionCall.name).join(", ")}.`
-    );
-
     const functionResponses = await Promise.all(
-      functionCalls.map(async (functionCall) => ({
-        id: functionCall.id,
-        name: functionCall.name,
-        response: await runTool(functionCall)
-      }))
+      functionCalls.map(async (functionCall) => {
+        const toolMessageId = chatThreads.addToolMessage({
+          text: `Using tool: ${functionCall.name ?? "unknown"}`,
+          toolName: functionCall.name,
+          toolRequestMarkdown: formatToolMarkdown({
+            id: functionCall.id,
+            name: functionCall.name,
+            args: functionCall.args ?? {}
+          }),
+          toolStatus: "running"
+        });
+        const response = await runTool(functionCall);
+        chatThreads.updateToolMessage(toolMessageId, {
+          text: `Used tool: ${functionCall.name ?? "unknown"}`,
+          toolResponseMarkdown: formatToolMarkdown(response),
+          toolStatus: "error" in response ? "error" : "done"
+        });
+
+        return {
+          id: functionCall.id,
+          name: functionCall.name,
+          response
+        };
+      })
     );
 
     try {
@@ -402,6 +422,42 @@ export function useLiveSession(): VoiceChatContextValue {
     }
   }
 
+  function addGoogleSearchToolMessage(groundingMetadata: GroundingMetadata) {
+    const queries = groundingMetadata.webSearchQueries ?? [];
+    const chunks =
+      groundingMetadata.groundingChunks
+        ?.map((chunk) => chunk.web)
+        .filter((web): web is NonNullable<typeof web> => Boolean(web)) ?? [];
+
+    if (!queries.length && !chunks.length) {
+      return;
+    }
+
+    const signature = JSON.stringify({ queries, chunks });
+    if (displayedGroundingSignaturesRef.current.has(signature)) {
+      return;
+    }
+    displayedGroundingSignaturesRef.current.add(signature);
+
+    chatThreads.addToolMessage({
+      text: "Used tool: Google Search",
+      toolName: "googleSearch",
+      toolRequestMarkdown: formatToolMarkdown({
+        note: "Native Gemini Google Search tool. The API exposes executed queries in grounding metadata after search completes.",
+        queries
+      }),
+      toolResponseMarkdown: formatToolMarkdown({
+        queries,
+        sources: chunks.map((chunk) => ({
+          title: chunk.title,
+          domain: chunk.domain,
+          uri: chunk.uri
+        }))
+      }),
+      toolStatus: "done"
+    });
+  }
+
   async function createThread() {
     await stopSessionIfNeeded();
     chatThreads.createThread();
@@ -420,4 +476,8 @@ export function useLiveSession(): VoiceChatContextValue {
       await stopSession();
     }
   }
+}
+
+function formatToolMarkdown(value: unknown) {
+  return `\`\`\`json\n${JSON.stringify(value, null, 2)}\n\`\`\``;
 }

@@ -86,6 +86,24 @@ export function useChatThreads() {
     }));
   }
 
+  function addToolMessage(message: Omit<Message, "id" | "role">) {
+    const id = createId();
+    updateActiveThread((thread) => ({
+      ...thread,
+      messages: [...thread.messages, { ...message, id, role: "tool" }]
+    }));
+    return id;
+  }
+
+  function updateToolMessage(id: string, update: Partial<Omit<Message, "id" | "role">>) {
+    updateActiveThread((thread) => ({
+      ...thread,
+      messages: thread.messages.map((message) =>
+        message.id === id && message.role === "tool" ? { ...message, ...update } : message
+      )
+    }));
+  }
+
   function appendUserTranscript(text: string) {
     const nextText = mergeTranscriptChunk(activeUserTranscriptRef.current, text);
     activeUserTranscriptRef.current = nextText;
@@ -140,6 +158,7 @@ export function useChatThreads() {
   return {
     activeThreadId,
     addMessage,
+    addToolMessage,
     appendModelTranscript,
     appendUserTranscript,
     createThread,
@@ -149,7 +168,8 @@ export function useChatThreads() {
     resetActiveUserTranscript,
     selectThread,
     threads,
-    transcriptRef
+    transcriptRef,
+    updateToolMessage
   };
 }
 

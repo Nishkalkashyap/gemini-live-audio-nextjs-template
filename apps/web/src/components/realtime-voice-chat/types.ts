@@ -12,8 +12,12 @@ export type TokenPayload = AppConfig & {
 
 export type Message = {
   id: string;
-  role: "user" | "model" | "system" | "error";
+  role: "user" | "model" | "system" | "error" | "tool";
   text: string;
+  toolName?: string;
+  toolRequestMarkdown?: string;
+  toolResponseMarkdown?: string;
+  toolStatus?: "running" | "done" | "error";
 };
 
 export type ChatThread = {
