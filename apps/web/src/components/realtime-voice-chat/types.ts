@@ -26,11 +26,18 @@ export type ToolApproval = {
   denyLabel: string;
 };
 
+export type ToolImage = {
+  data: string;
+  filename: string;
+  mimeType: "image/jpeg" | "image/png";
+};
+
 export type Message = {
   id: string;
   role: "user" | "model" | "system" | "error" | "tool";
   text: string;
   toolApproval?: ToolApproval;
+  toolImage?: ToolImage;
   toolName?: string;
   toolRequestMarkdown?: string;
   toolResponseMarkdown?: string;

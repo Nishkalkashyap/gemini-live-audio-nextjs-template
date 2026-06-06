@@ -156,6 +156,14 @@ export function useScreenShare({ frameRate, onFrame }: ScreenShareOptions) {
     }
   }
 
+  async function captureScreenFrame() {
+    if (!streamRef.current) {
+      return undefined;
+    }
+
+    return createScreenFrame();
+  }
+
   async function createScreenFrame(): Promise<ScreenFrame | undefined> {
     const video = videoRef.current;
     if (!video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
@@ -197,6 +205,7 @@ export function useScreenShare({ frameRate, onFrame }: ScreenShareOptions) {
     isScreenSharing,
     isStartingScreenShare,
     screenShareError,
+    captureScreenFrame,
     startScreenShare,
     stopScreenShare
   };

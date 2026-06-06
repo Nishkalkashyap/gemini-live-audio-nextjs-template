@@ -15,13 +15,20 @@ import {
 } from "@google/genai";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DEFAULT_LIVE_MODEL_ID } from "@/lib/live-models";
-import { CRAWL_URL_FUNCTION_NAME, OPEN_URL_FUNCTION_NAME, liveTools } from "@/lib/live-tools";
+import {
+  CRAWL_URL_FUNCTION_NAME,
+  OPEN_URL_FUNCTION_NAME,
+  SCREEN_SHARE_FUNCTION_NAME,
+  TAKE_SCREENSHOT_FUNCTION_NAME,
+  liveTools
+} from "@/lib/live-tools";
 import { arrayBufferToBase64 } from "./audio-utils";
 import type {
   AppConfig,
   ScreenFrameRate,
   Status,
   ToolApproval,
+  ToolImage,
   TokenPayload,
   VoiceChatContextValue
 } from "./types";
@@ -48,11 +55,16 @@ type ConnectOptions = {
 
 type ToolResponsePayload = Record<string, unknown>;
 
+type ToolExecutionResult = {
+  response: ToolResponsePayload;
+  toolImage?: ToolImage;
+};
+
 type SensitiveToolDefinition = {
   name: string;
   label: string;
   createApproval: (functionCall: FunctionCall, callId: string) => ToolApproval;
-  execute: (functionCall: FunctionCall) => Promise<ToolResponsePayload>;
+  execute: (functionCall: FunctionCall) => Promise<ToolExecutionResult>;
 };
 
 type ToolApprovalDecision = "approved" | "denied";
@@ -645,9 +657,13 @@ export function useLiveSession(initialChatId?: string): VoiceChatContextValue {
       });
     }
 
-    const response = sensitiveTool ? await sensitiveTool.execute(functionCall) : await runTool(functionCall);
+    const result = sensitiveTool
+      ? await sensitiveTool.execute(functionCall)
+      : { response: await runTool(functionCall) };
+    const { response, toolImage } = result;
     chatThreads.updateToolMessage(toolMessageId, {
       text: `Used tool: ${sensitiveTool?.label ?? functionCall.name ?? "unknown"}`,
+      toolImage,
       toolResponseMarkdown: formatToolMarkdown(response),
       toolStatus: "error" in response ? "error" : "done"
     });
@@ -655,21 +671,13 @@ export function useLiveSession(initialChatId?: string): VoiceChatContextValue {
   }
 
   async function runTool(functionCall: FunctionCall): Promise<ToolResponsePayload> {
-    if (functionCall.name === CRAWL_URL_FUNCTION_NAME) {
-      return executeCrawlUrl(functionCall);
-    }
-
-    if (functionCall.name === OPEN_URL_FUNCTION_NAME) {
-      return executeOpenUrl(functionCall);
-    }
-
     return { error: `Unknown function: ${functionCall.name ?? "unnamed"}` };
   }
 
-  async function executeCrawlUrl(functionCall: FunctionCall): Promise<ToolResponsePayload> {
+  async function executeCrawlUrl(functionCall: FunctionCall): Promise<ToolExecutionResult> {
     const url = functionCall.args?.url;
     if (typeof url !== "string") {
-      return { error: "crawl_url requires a string url argument." };
+      return { response: { error: "crawl_url requires a string url argument." } };
     }
 
     try {
@@ -680,28 +688,32 @@ export function useLiveSession(initialChatId?: string): VoiceChatContextValue {
       });
       const payload = (await response.json()) as Record<string, unknown>;
       if (!response.ok) {
-        return { error: payload.error ?? "Crawler request failed.", detail: payload.detail };
+        return { response: { error: payload.error ?? "Crawler request failed.", detail: payload.detail } };
       }
-      return { output: payload };
+      return { response: { output: payload } };
     } catch (error) {
       return {
-        error: "Crawler request failed.",
-        detail: error instanceof Error ? error.message : String(error)
+        response: {
+          error: "Crawler request failed.",
+          detail: error instanceof Error ? error.message : String(error)
+        }
       };
     }
   }
 
-  async function executeOpenUrl(functionCall: FunctionCall): Promise<ToolResponsePayload> {
+  async function executeOpenUrl(functionCall: FunctionCall): Promise<ToolExecutionResult> {
     const url = getFunctionCallUrl(functionCall);
     if (!url) {
-      return { error: "open_url requires a valid http or https url argument." };
+      return { response: { error: "open_url requires a valid http or https url argument." } };
     }
 
     const openedWindow = window.open(url.toString(), "_blank");
     if (!openedWindow) {
       return {
-        error: "Browser blocked the popup.",
-        detail: "Approve the tool call directly in the active tab and allow popups for this site."
+        response: {
+          error: "Browser blocked the popup.",
+          detail: "Approve the tool call directly in the active tab and allow popups for this site."
+        }
       };
     }
 
@@ -711,7 +723,56 @@ export function useLiveSession(initialChatId?: string): VoiceChatContextValue {
     } catch {
       // Some browser policies restrict interacting with a newly opened cross-origin tab.
     }
-    return { opened: true, url: url.toString() };
+    return { response: { opened: true, url: url.toString() } };
+  }
+
+  async function executeScreenShare(functionCall: FunctionCall): Promise<ToolExecutionResult> {
+    const action = functionCall.args?.action;
+    if (action !== "start" && action !== "stop") {
+      return { response: { error: "screen_share requires an action of start or stop." } };
+    }
+
+    if (action === "start") {
+      if (!isSessionActive(sessionRef.current)) {
+        return { response: { error: "Start a Gemini Live session before sharing your screen." } };
+      }
+      if (screenShare.isScreenSharing) {
+        return { response: { screenSharing: true, alreadyActive: true } };
+      }
+      await screenShare.startScreenShare();
+      return { response: { screenSharing: true } };
+    }
+
+    screenShare.stopScreenShare();
+    return { response: { screenSharing: false } };
+  }
+
+  async function executeTakeScreenshot(): Promise<ToolExecutionResult> {
+    if (!isSessionActive(sessionRef.current)) {
+      return { response: { error: "Start a Gemini Live session before taking a screenshot." } };
+    }
+
+    const frame = await screenShare.captureScreenFrame();
+    if (!frame) {
+      return {
+        response: { error: "Screen sharing is not active. Start screen sharing before taking a screenshot." }
+      };
+    }
+
+    const filename = createScreenshotFilename();
+    return {
+      response: {
+        captured: true,
+        filename,
+        mimeType: frame.mimeType,
+        note: "Screenshot captured from the active shared screen and displayed in chat."
+      },
+      toolImage: {
+        data: frame.data,
+        filename,
+        mimeType: frame.mimeType
+      }
+    };
   }
 
   function getSensitiveTool(name: string | undefined) {
@@ -748,6 +809,42 @@ export function useLiveSession(initialChatId?: string): VoiceChatContextValue {
           };
         },
         execute: executeOpenUrl
+      } satisfies SensitiveToolDefinition;
+    }
+
+    if (name === SCREEN_SHARE_FUNCTION_NAME) {
+      return {
+        name: SCREEN_SHARE_FUNCTION_NAME,
+        label: "Screen sharing",
+        createApproval: (functionCall, callId) => {
+          const action = functionCall.args?.action === "stop" ? "stop" : "start";
+          return {
+            callId,
+            title: `${action === "start" ? "Start" : "Stop"} screen sharing`,
+            description:
+              action === "start"
+                ? "Gemini wants to start screen sharing. Your browser may ask you to choose a screen, window, or tab."
+                : "Gemini wants to stop the active screen share.",
+            approveLabel: action === "start" ? "Start sharing" : "Stop sharing",
+            denyLabel: "Deny"
+          };
+        },
+        execute: executeScreenShare
+      } satisfies SensitiveToolDefinition;
+    }
+
+    if (name === TAKE_SCREENSHOT_FUNCTION_NAME) {
+      return {
+        name: TAKE_SCREENSHOT_FUNCTION_NAME,
+        label: "Screenshot",
+        createApproval: (_functionCall, callId) => ({
+          callId,
+          title: "Approve screenshot",
+          description: "Gemini wants to capture one screenshot from the active shared screen.",
+          approveLabel: "Capture",
+          denyLabel: "Deny"
+        }),
+        execute: executeTakeScreenshot
       } satisfies SensitiveToolDefinition;
     }
 
@@ -871,6 +968,11 @@ function getFunctionCallUrl(functionCall: FunctionCall) {
   } catch {
     return undefined;
   }
+}
+
+function createScreenshotFilename() {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  return `gemini-screenshot-${timestamp}.jpg`;
 }
 
 function createLiveConnectConfig(

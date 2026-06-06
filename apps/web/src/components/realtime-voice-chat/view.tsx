@@ -2,6 +2,7 @@
 
 import {
   CircleAlert,
+  Download,
   Info,
   Mic,
   Mic2,
@@ -313,6 +314,7 @@ function ToolMessage({ message }: { message: Message }) {
             toolName={message.toolName ?? "tool"}
             title={message.text}
           />
+          {message.toolImage ? <ToolImagePreview image={message.toolImage} /> : null}
           <ToolContent>
             <ToolInput input={input} />
             {toolApproval ? (
@@ -342,6 +344,28 @@ function ToolMessage({ message }: { message: Message }) {
         </Tool>
       </MessageContent>
     </AIMessage>
+  );
+}
+
+function ToolImagePreview({ image }: { image: NonNullable<Message["toolImage"]> }) {
+  const imageUrl = `data:${image.mimeType};base64,${image.data}`;
+
+  return (
+    <div className="space-y-3 border-t p-3">
+      <img
+        src={imageUrl}
+        alt="Captured screenshot"
+        className="max-h-[28rem] w-full rounded-md border object-contain"
+      />
+      <div className="flex justify-end">
+        <Button asChild size="sm" variant="outline">
+          <a href={imageUrl} download={image.filename}>
+            <Download className="size-4" />
+            Download
+          </a>
+        </Button>
+      </div>
+    </div>
   );
 }
 

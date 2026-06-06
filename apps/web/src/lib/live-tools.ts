@@ -2,6 +2,8 @@ import { Type, type FunctionDeclaration, type Tool } from "@google/genai";
 
 export const CRAWL_URL_FUNCTION_NAME = "crawl_url";
 export const OPEN_URL_FUNCTION_NAME = "open_url";
+export const SCREEN_SHARE_FUNCTION_NAME = "screen_share";
+export const TAKE_SCREENSHOT_FUNCTION_NAME = "take_screenshot";
 
 export const crawlUrlFunctionDeclaration = {
   name: CRAWL_URL_FUNCTION_NAME,
@@ -35,7 +37,41 @@ export const openUrlFunctionDeclaration = {
   }
 } satisfies FunctionDeclaration;
 
+export const screenShareFunctionDeclaration = {
+  name: SCREEN_SHARE_FUNCTION_NAME,
+  description:
+    "Start or stop sharing the user's screen with Gemini Live. Use this when the user asks to share their screen, stop sharing, or let Gemini see the screen.",
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+      action: {
+        type: Type.STRING,
+        description: "Whether to start or stop screen sharing.",
+        enum: ["start", "stop"]
+      }
+    },
+    required: ["action"]
+  }
+} satisfies FunctionDeclaration;
+
+export const takeScreenshotFunctionDeclaration = {
+  name: TAKE_SCREENSHOT_FUNCTION_NAME,
+  description:
+    "Capture a single screenshot from the currently shared screen and display it in the chat for the user to download. Requires screen sharing to already be active.",
+  parameters: {
+    type: Type.OBJECT,
+    properties: {}
+  }
+} satisfies FunctionDeclaration;
+
 export const liveTools = [
   { googleSearch: {} },
-  { functionDeclarations: [crawlUrlFunctionDeclaration, openUrlFunctionDeclaration] }
+  {
+    functionDeclarations: [
+      crawlUrlFunctionDeclaration,
+      openUrlFunctionDeclaration,
+      screenShareFunctionDeclaration,
+      takeScreenshotFunctionDeclaration
+    ]
+  }
 ] satisfies Tool[];
