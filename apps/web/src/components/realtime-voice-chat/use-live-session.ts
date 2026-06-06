@@ -2,6 +2,7 @@
 
 import {
   EndSensitivity,
+  type FunctionCall,
   GoogleGenAI,
   Modality,
   StartSensitivity,
@@ -9,6 +10,7 @@ import {
   type Session
 } from "@google/genai";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { CRAWL_URL_FUNCTION_NAME, liveTools } from "@/lib/live-tools";
 import { arrayBufferToBase64 } from "./audio-utils";
 import type { AppConfig, Status, TokenPayload, VoiceChatContextValue } from "./types";
 import { useAudioIo } from "./use-audio-io";
@@ -158,6 +160,7 @@ export function useLiveSession(): VoiceChatContextValue {
       config: {
         responseModalities: [Modality.AUDIO],
         temperature: 0.7,
+        tools: liveTools,
         speechConfig: {
           voiceConfig: {
             prebuiltVoiceConfig: { voiceName: voiceNameRef.current }
@@ -222,6 +225,11 @@ export function useLiveSession(): VoiceChatContextValue {
 
     const content = message.serverContent;
 
+    if (message.toolCall?.functionCalls?.length) {
+      void handleToolCalls(message.toolCall.functionCalls);
+      return;
+    }
+
     if (content?.interrupted) {
       audio.resetPlayback();
       chatThreads.resetActiveTranscripts();
@@ -277,6 +285,7 @@ export function useLiveSession(): VoiceChatContextValue {
     if (!isSessionActive(session)) {
       return;
     }
+    const activeSession = session;
 
     sendRealtimeInput(session, {
       audio: {
@@ -335,6 +344,62 @@ export function useLiveSession(): VoiceChatContextValue {
   function setVoiceName(nextVoiceName: string) {
     setVoiceNameState(nextVoiceName);
     voiceNameRef.current = nextVoiceName;
+  }
+
+  async function handleToolCalls(functionCalls: FunctionCall[]) {
+    const session = sessionRef.current;
+    if (!session || !isActiveRef.current) {
+      return;
+    }
+    const activeSession = session;
+
+    chatThreads.addMessage(
+      "system",
+      `Using ${functionCalls.map((functionCall) => functionCall.name).join(", ")}.`
+    );
+
+    const functionResponses = await Promise.all(
+      functionCalls.map(async (functionCall) => ({
+        id: functionCall.id,
+        name: functionCall.name,
+        response: await runTool(functionCall)
+      }))
+    );
+
+    try {
+      activeSession.sendToolResponse({ functionResponses });
+    } catch {
+      // The socket may close while a tool call is running.
+    }
+  }
+
+  async function runTool(functionCall: FunctionCall) {
+    if (functionCall.name !== CRAWL_URL_FUNCTION_NAME) {
+      return { error: `Unknown function: ${functionCall.name ?? "unnamed"}` };
+    }
+
+    const url = functionCall.args?.url;
+    if (typeof url !== "string") {
+      return { error: "crawl_url requires a string url argument." };
+    }
+
+    try {
+      const response = await fetch("/api/crawl", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url })
+      });
+      const payload = (await response.json()) as Record<string, unknown>;
+      if (!response.ok) {
+        return { error: payload.error ?? "Crawler request failed.", detail: payload.detail };
+      }
+      return { output: payload };
+    } catch (error) {
+      return {
+        error: "Crawler request failed.",
+        detail: error instanceof Error ? error.message : String(error)
+      };
+    }
   }
 
   async function createThread() {
