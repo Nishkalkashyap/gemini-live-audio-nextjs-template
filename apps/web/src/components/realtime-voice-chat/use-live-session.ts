@@ -12,7 +12,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { arrayBufferToBase64 } from "./audio-utils";
 import type { AppConfig, Status, TokenPayload, VoiceChatContextValue } from "./types";
 import { useAudioIo } from "./use-audio-io";
-import { useTranscript } from "./use-transcript";
+import { useChatThreads } from "./use-chat-threads";
 
 const SYSTEM_INSTRUCTION =
   "You are a concise, helpful realtime voice assistant. Keep spoken responses brief unless the user asks for detail.";
@@ -25,7 +25,7 @@ export function useLiveSession(): VoiceChatContextValue {
   const [inputLevel, setInputLevel] = useState(0);
   const [outputLevel, setOutputLevel] = useState(0);
 
-  const transcript = useTranscript();
+  const chatThreads = useChatThreads();
   const sessionRef = useRef<Session | undefined>(undefined);
   const isActiveRef = useRef(false);
   const sessionGenerationRef = useRef(0);
@@ -60,15 +60,19 @@ export function useLiveSession(): VoiceChatContextValue {
   return useMemo(
     () => ({
       state: {
+        activeThreadId: chatThreads.activeThreadId,
         inputLevel,
-        messages: transcript.messages,
+        messages: chatThreads.messages,
         model,
         outputLevel,
         status,
         textInput,
+        threads: chatThreads.threads,
         voiceName
       },
       actions: {
+        createThread,
+        selectThread,
         setTextInput,
         setVoiceName,
         startSession,
@@ -79,11 +83,15 @@ export function useLiveSession(): VoiceChatContextValue {
         canSendText,
         isLive,
         isStarting,
-        transcriptRef: transcript.transcriptRef
+        transcriptRef: chatThreads.transcriptRef
       }
     }),
     [
       canSendText,
+      chatThreads.activeThreadId,
+      chatThreads.messages,
+      chatThreads.threads,
+      chatThreads.transcriptRef,
       inputLevel,
       isLive,
       isStarting,
@@ -91,8 +99,6 @@ export function useLiveSession(): VoiceChatContextValue {
       outputLevel,
       status,
       textInput,
-      transcript.messages,
-      transcript.transcriptRef,
       voiceName
     ]
   );
@@ -123,7 +129,7 @@ export function useLiveSession(): VoiceChatContextValue {
       await audio.setupCapture();
       await connectLiveSession(tokenPayload.token, sessionGeneration);
     } catch (error) {
-      transcript.addMessage("error", error instanceof Error ? error.message : String(error));
+      chatThreads.addMessage("error", error instanceof Error ? error.message : String(error));
       await cleanup();
       setStatus("Error");
     }
@@ -188,7 +194,7 @@ export function useLiveSession(): VoiceChatContextValue {
           if (!isCurrentSession(sessionGeneration)) {
             return;
           }
-          transcript.addMessage("error", event.message || "Gemini Live session error.");
+          chatThreads.addMessage("error", event.message || "Gemini Live session error.");
           void cleanup();
           setStatus("Error");
         },
@@ -197,7 +203,7 @@ export function useLiveSession(): VoiceChatContextValue {
             return;
           }
           if (isActiveRef.current && event.reason) {
-            transcript.addMessage("system", `Session closed: ${event.reason}`);
+            chatThreads.addMessage("system", `Session closed: ${event.reason}`);
           }
           void cleanup();
           setStatus("Idle");
@@ -210,7 +216,7 @@ export function useLiveSession(): VoiceChatContextValue {
     if (message.setupComplete) {
       setStatus("Live");
       audio.startCapture();
-      transcript.addMessage("system", "Session connected. Speak into your microphone.");
+      chatThreads.addMessage("system", "Session connected. Speak into your microphone.");
       return;
     }
 
@@ -218,24 +224,24 @@ export function useLiveSession(): VoiceChatContextValue {
 
     if (content?.interrupted) {
       audio.resetPlayback();
-      transcript.resetActiveTranscripts();
-      transcript.addMessage("system", "Interrupted");
+      chatThreads.resetActiveTranscripts();
+      chatThreads.addMessage("system", "Interrupted");
       return;
     }
 
     if (content?.inputTranscription?.text) {
-      transcript.appendUserTranscript(content.inputTranscription.text);
+      chatThreads.appendUserTranscript(content.inputTranscription.text);
     }
 
     if (content?.outputTranscription?.text) {
-      transcript.resetActiveUserTranscript();
-      transcript.appendModelTranscript(content.outputTranscription.text);
+      chatThreads.resetActiveUserTranscript();
+      chatThreads.appendModelTranscript(content.outputTranscription.text);
     }
 
     if (content?.modelTurn?.parts) {
       for (const part of content.modelTurn.parts) {
         if (part.text) {
-          transcript.appendModelTranscript(part.text);
+          chatThreads.appendModelTranscript(part.text);
         }
         if (part.inlineData?.data) {
           audio.playPcmChunk(part.inlineData.data);
@@ -244,7 +250,7 @@ export function useLiveSession(): VoiceChatContextValue {
     }
 
     if (content?.generationComplete || content?.turnComplete) {
-      transcript.resetActiveModelTranscript();
+      chatThreads.resetActiveModelTranscript();
     }
   }
 
@@ -263,7 +269,7 @@ export function useLiveSession(): VoiceChatContextValue {
     isActiveRef.current = false;
     sessionRef.current = undefined;
     await audio.cleanupAudio();
-    transcript.resetActiveTranscripts();
+    chatThreads.resetActiveTranscripts();
   }
 
   function handlePcmInput(pcmBuffer: ArrayBuffer) {
@@ -322,12 +328,31 @@ export function useLiveSession(): VoiceChatContextValue {
       return;
     }
     sendRealtimeInput(session, { text });
-    transcript.addMessage("user", text);
+    chatThreads.addMessage("user", text);
     setTextInput("");
   }
 
   function setVoiceName(nextVoiceName: string) {
     setVoiceNameState(nextVoiceName);
     voiceNameRef.current = nextVoiceName;
+  }
+
+  async function createThread() {
+    await stopSessionIfNeeded();
+    chatThreads.createThread();
+  }
+
+  async function selectThread(threadId: string) {
+    if (threadId === chatThreads.activeThreadId) {
+      return;
+    }
+    await stopSessionIfNeeded();
+    chatThreads.selectThread(threadId);
+  }
+
+  async function stopSessionIfNeeded() {
+    if (sessionRef.current || status === "Preparing" || status === "Connecting" || status === "Live") {
+      await stopSession();
+    }
   }
 }

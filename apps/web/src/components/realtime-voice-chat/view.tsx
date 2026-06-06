@@ -1,5 +1,6 @@
 "use client";
 
+import { Mic, Plus, Send, Square } from "lucide-react";
 import { type FormEvent, type ReactNode } from "react";
 import {
   Select,
@@ -8,16 +9,48 @@ import {
   SelectItem,
   SelectTrigger
 } from "@/components/ui/select";
-import { VOICE_OPTIONS } from "./voice-options";
 import { useVoiceChat } from "./context";
+import { VOICE_OPTIONS } from "./voice-options";
 
 function Layout({ children }: { children: ReactNode }) {
-  return <main className="app-shell">{children}</main>;
+  return <main className="chat-app">{children}</main>;
 }
 
-function ConversationPanel({ children }: { children: ReactNode }) {
+function Sidebar() {
+  const {
+    actions: { createThread, selectThread },
+    state: { activeThreadId, threads }
+  } = useVoiceChat();
+
   return (
-    <section className="conversation-panel" aria-label="Realtime voice chat">
+    <aside className="chat-sidebar" aria-label="Chat threads">
+      <div className="sidebar-brand">Gemini Live</div>
+      <button className="new-thread-button" type="button" onClick={() => void createThread()}>
+        <Plus aria-hidden="true" size={18} />
+        New chat
+      </button>
+      <div className="thread-section-label">Chats</div>
+      <nav className="thread-list" aria-label="Past chat history">
+        {threads.map((thread) => (
+          <button
+            aria-current={thread.id === activeThreadId ? "page" : undefined}
+            className="thread-button"
+            key={thread.id}
+            type="button"
+            onClick={() => void selectThread(thread.id)}
+          >
+            <span className="thread-title">{thread.title}</span>
+            <span className="thread-time">{formatThreadTime(thread.updatedAt)}</span>
+          </button>
+        ))}
+      </nav>
+    </aside>
+  );
+}
+
+function Main({ children }: { children: ReactNode }) {
+  return (
+    <section className="chat-main" aria-label="Realtime audio chat">
       {children}
     </section>
   );
@@ -25,65 +58,36 @@ function ConversationPanel({ children }: { children: ReactNode }) {
 
 function Header() {
   const {
-    state: { status }
+    state: { activeThreadId, model, threads }
   } = useVoiceChat();
+  const activeThread = threads.find((thread) => thread.id === activeThreadId);
 
   return (
-    <header className="top-bar">
+    <header className="chat-header">
       <div>
         <p className="eyebrow">Gemini Live API</p>
-        <h1>Realtime audio chat</h1>
+        <h1>{activeThread?.title || "Realtime audio chat"}</h1>
       </div>
-      <div className="status-pill" id="status">
-        {status}
-      </div>
+      <div className="model-chip">{model}</div>
     </header>
   );
 }
 
-function AudioMeters() {
+function Transcript() {
   const {
-    state: { inputLevel, outputLevel }
+    meta: { transcriptRef },
+    state: { messages }
   } = useVoiceChat();
 
   return (
-    <div className="meter-row" aria-hidden="true">
-      <span
-        className="meter"
-        style={{ "--level": `${Math.round(inputLevel * 100)}%` } as React.CSSProperties}
-      />
-      <span
-        className="meter meter-output"
-        style={{ "--level": `${Math.round(outputLevel * 100)}%` } as React.CSSProperties}
-      />
-    </div>
-  );
-}
-
-function Controls() {
-  const {
-    actions: { startSession, stopSession },
-    meta: { isLive, isStarting }
-  } = useVoiceChat();
-
-  return (
-    <div className="controls">
-      <button
-        className="primary-button"
-        type="button"
-        disabled={isStarting || isLive}
-        onClick={() => void startSession()}
-      >
-        Start voice chat
-      </button>
-      <button
-        className="secondary-button"
-        type="button"
-        disabled={!isStarting && !isLive}
-        onClick={() => void stopSession()}
-      >
-        Stop
-      </button>
+    <div className="transcript" ref={transcriptRef} aria-live="polite">
+      <div className="transcript-inner">
+        {messages.map((message) => (
+          <div className={`message ${message.role}`} key={message.id}>
+            {message.text}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -101,111 +105,144 @@ function Composer() {
   }
 
   return (
-    <form className="text-form" onSubmit={handleSubmit}>
-      <input
-        type="text"
-        autoComplete="off"
-        placeholder="Send a text turn while the session is open"
-        value={textInput}
-        onChange={(event) => setTextInput(event.target.value)}
-      />
-      <button type="submit" disabled={!canSendText}>
-        Send
-      </button>
-    </form>
-  );
-}
-
-function Transcript() {
-  const {
-    meta: { transcriptRef },
-    state: { messages }
-  } = useVoiceChat();
-
-  return (
-    <div className="transcript" ref={transcriptRef} aria-live="polite">
-      {messages.map((message) => (
-        <div className={`message ${message.role}`} key={message.id}>
-          {message.text}
-        </div>
-      ))}
+    <div className="composer-dock">
+      <form className="composer-form" onSubmit={handleSubmit}>
+        <input
+          type="text"
+          autoComplete="off"
+          placeholder="Ask anything"
+          value={textInput}
+          onChange={(event) => setTextInput(event.target.value)}
+        />
+        <VoiceSelect />
+        <button className="icon-button" type="submit" disabled={!canSendText} aria-label="Send" title="Send">
+          <Send aria-hidden="true" size={18} />
+        </button>
+        <VoiceControls />
+      </form>
+      <AudioMeters />
+      <ConnectionStatus />
     </div>
   );
 }
 
-function DetailsPanel() {
-  return (
-    <aside className="details-panel" aria-label="Session details">
-      <dl>
-        <ModelDetail />
-        <VoiceDetail />
-        <Detail label="Input audio">PCM 16-bit, 16 kHz, mono</Detail>
-        <Detail label="Output audio">PCM 16-bit, 24 kHz, mono</Detail>
-        <Detail label="Auth">Server-issued ephemeral token</Detail>
-      </dl>
-    </aside>
-  );
-}
-
-function ModelDetail() {
-  const {
-    state: { model }
-  } = useVoiceChat();
-
-  return <Detail label="Model">{model}</Detail>;
-}
-
-function VoiceDetail() {
+function VoiceSelect() {
   const {
     actions: { setVoiceName },
-    meta: { isStarting },
+    meta: { isLive, isStarting },
     state: { voiceName }
   } = useVoiceChat();
 
   return (
-    <Detail label="Voice">
-      <Select value={voiceName} onValueChange={setVoiceName} disabled={isStarting}>
-        <SelectTrigger className="voice-select-trigger" aria-label="Voice">
-          <span className="voice-select-current">{voiceName}</span>
-        </SelectTrigger>
-        <SelectContent className="voice-select-content" align="start" sideOffset={6}>
-          <SelectGroup>
-            {VOICE_OPTIONS.map((voice) => (
-              <SelectItem
-                className="voice-select-item"
-                key={voice.name}
-                textValue={`${voice.name} ${voice.description}`}
-                value={voice.name}
-              >
-                <span className="voice-select-option">
-                  <span className="voice-select-name">{voice.name}</span>
-                  <span className="voice-select-description">{voice.description}</span>
-                </span>
-              </SelectItem>
-            ))}
-          </SelectGroup>
-        </SelectContent>
-      </Select>
-    </Detail>
+    <Select value={voiceName} onValueChange={setVoiceName} disabled={isStarting || isLive}>
+      <SelectTrigger className="voice-select-trigger" aria-label="Voice selector" title="Voice selector">
+        <span className="voice-select-current">{voiceName}</span>
+      </SelectTrigger>
+      <SelectContent className="voice-select-content" align="end" sideOffset={10}>
+        <SelectGroup>
+          {VOICE_OPTIONS.map((voice) => (
+            <SelectItem
+              className="voice-select-item"
+              key={voice.name}
+              textValue={`${voice.name} ${voice.description}`}
+              value={voice.name}
+            >
+              <span className="voice-select-option">
+                <span className="voice-select-name">{voice.name}</span>
+                <span className="voice-select-description">{voice.description}</span>
+              </span>
+            </SelectItem>
+          ))}
+        </SelectGroup>
+      </SelectContent>
+    </Select>
   );
 }
 
-function Detail({ children, label }: { children: ReactNode; label: string }) {
+function VoiceControls() {
+  const {
+    actions: { startSession, stopSession },
+    meta: { isLive, isStarting }
+  } = useVoiceChat();
+
+  if (isLive || isStarting) {
+    return (
+      <button
+        className="icon-button stop-button"
+        type="button"
+        onClick={() => void stopSession()}
+        aria-label="Stop voice chat"
+        title="Stop voice chat"
+      >
+        <Square aria-hidden="true" size={16} />
+      </button>
+    );
+  }
+
   return (
-    <div>
-      <dt>{label}</dt>
-      <dd>{children}</dd>
+    <button
+      className="icon-button voice-button"
+      type="button"
+      onClick={() => void startSession()}
+      aria-label="Start voice chat"
+      title="Start voice chat"
+    >
+      <Mic aria-hidden="true" size={18} />
+    </button>
+  );
+}
+
+function AudioMeters() {
+  const {
+    state: { inputLevel, outputLevel }
+  } = useVoiceChat();
+
+  return (
+    <div className="meter-row" aria-label="Audio levels">
+      <span
+        className="meter"
+        style={{ "--level": `${Math.round(inputLevel * 100)}%` } as React.CSSProperties}
+      />
+      <span
+        className="meter meter-output"
+        style={{ "--level": `${Math.round(outputLevel * 100)}%` } as React.CSSProperties}
+      />
     </div>
   );
 }
 
+function ConnectionStatus() {
+  const {
+    state: { status, voiceName }
+  } = useVoiceChat();
+
+  return (
+    <div className="connection-status">
+      <span className={`status-dot ${status.toLowerCase()}`} aria-hidden="true" />
+      <span>{status}</span>
+      <span className="status-separator" aria-hidden="true" />
+      <span>{voiceName}</span>
+    </div>
+  );
+}
+
+function formatThreadTime(timestamp: number) {
+  if (!timestamp) {
+    return "New";
+  }
+
+  const date = new Date(timestamp);
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(
+    2,
+    "0"
+  )}`;
+}
+
 export const VoiceChatView = {
-  AudioMeters,
   Composer,
-  Controls,
-  ConversationPanel,
-  DetailsPanel,
   Header,
   Layout,
+  Main,
+  Sidebar,
   Transcript
 };

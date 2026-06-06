@@ -7,14 +7,12 @@ export function RealtimeVoiceChat() {
   return (
     <VoiceChatProvider>
       <VoiceChatView.Layout>
-        <VoiceChatView.ConversationPanel>
+        <VoiceChatView.Sidebar />
+        <VoiceChatView.Main>
           <VoiceChatView.Header />
-          <VoiceChatView.AudioMeters />
-          <VoiceChatView.Controls />
-          <VoiceChatView.Composer />
           <VoiceChatView.Transcript />
-        </VoiceChatView.ConversationPanel>
-        <VoiceChatView.DetailsPanel />
+          <VoiceChatView.Composer />
+        </VoiceChatView.Main>
       </VoiceChatView.Layout>
     </VoiceChatProvider>
   );

@@ -16,6 +16,14 @@ export type Message = {
   text: string;
 };
 
+export type ChatThread = {
+  id: string;
+  title: string;
+  messages: Message[];
+  createdAt: number;
+  updatedAt: number;
+};
+
 export type Status = "Idle" | "Preparing" | "Connecting" | "Live" | "Error";
 
 export type VoiceOption = {
@@ -24,16 +32,20 @@ export type VoiceOption = {
 };
 
 export type VoiceChatState = {
+  activeThreadId: string;
   inputLevel: number;
   messages: Message[];
   model: string;
   outputLevel: number;
   status: Status;
   textInput: string;
+  threads: ChatThread[];
   voiceName: string;
 };
 
 export type VoiceChatActions = {
+  createThread: () => Promise<void>;
+  selectThread: (threadId: string) => Promise<void>;
   setTextInput: (value: string) => void;
   setVoiceName: (voiceName: string) => void;
   startSession: () => Promise<void>;
