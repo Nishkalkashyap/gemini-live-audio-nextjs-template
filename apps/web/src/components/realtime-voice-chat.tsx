@@ -101,6 +101,7 @@ export function RealtimeVoiceChat() {
   const activeModelMessageIdRef = useRef<string | undefined>(undefined);
   const activeModelTranscriptRef = useRef("");
   const isActiveRef = useRef(false);
+  const sessionGenerationRef = useRef(0);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const modelRef = useRef(model);
   const voiceNameRef = useRef(voiceName);
@@ -141,6 +142,8 @@ export function RealtimeVoiceChat() {
 
   async function startSession() {
     setStatus("Preparing");
+    const sessionGeneration = sessionGenerationRef.current + 1;
+    sessionGenerationRef.current = sessionGeneration;
 
     try {
       const tokenPayload = await createLiveToken();
@@ -149,7 +152,7 @@ export function RealtimeVoiceChat() {
 
       await setupPlayback();
       await setupCapture();
-      await connectLiveSession(tokenPayload.token);
+      await connectLiveSession(tokenPayload.token, sessionGeneration);
     } catch (error) {
       addMessage("error", error instanceof Error ? error.message : String(error));
       await cleanup();
@@ -167,7 +170,7 @@ export function RealtimeVoiceChat() {
     return payload as TokenPayload;
   }
 
-  async function connectLiveSession(token: string) {
+  async function connectLiveSession(token: string, sessionGeneration: number) {
     const ai = new GoogleGenAI({
       apiKey: token,
       httpOptions: { apiVersion: "v1alpha" }
@@ -206,17 +209,29 @@ export function RealtimeVoiceChat() {
       },
       callbacks: {
         onopen: () => {
+          if (!isCurrentSession(sessionGeneration)) {
+            return;
+          }
           isActiveRef.current = true;
         },
         onmessage: (message) => {
+          if (!isCurrentSession(sessionGeneration)) {
+            return;
+          }
           handleLiveMessage(message);
         },
         onerror: (event) => {
+          if (!isCurrentSession(sessionGeneration)) {
+            return;
+          }
           addMessage("error", event.message || "Gemini Live session error.");
           void cleanup();
           setStatus("Error");
         },
         onclose: (event) => {
+          if (!isCurrentSession(sessionGeneration)) {
+            return;
+          }
           if (isActiveRef.current && event.reason) {
             addMessage("system", `Session closed: ${event.reason}`);
           }
@@ -256,9 +271,14 @@ export function RealtimeVoiceChat() {
     );
 
     captureWorkletRef.current.port.onmessage = (event: MessageEvent<ArrayBuffer>) => {
+      const session = sessionRef.current;
+      if (!isSessionActive(session)) {
+        return;
+      }
+
       const pcmBuffer = event.data;
       setInputLevel(calculateLevel(new Int16Array(pcmBuffer)));
-      sessionRef.current?.sendRealtimeInput({
+      sendRealtimeInput(session, {
         audio: {
           data: arrayBufferToBase64(pcmBuffer),
           mimeType: "audio/pcm;rate=16000"
@@ -366,8 +386,14 @@ export function RealtimeVoiceChat() {
   }
 
   async function stopSession() {
-    sessionRef.current?.sendRealtimeInput({ audioStreamEnd: true });
-    sessionRef.current?.close();
+    const session = sessionRef.current;
+    sessionGenerationRef.current += 1;
+    isActiveRef.current = false;
+    stopCapture();
+
+    sendRealtimeInput(session, { audioStreamEnd: true });
+
+    closeSession(session);
     await cleanup();
     setStatus("Idle");
   }
@@ -379,10 +405,7 @@ export function RealtimeVoiceChat() {
 
     sessionRef.current = undefined;
 
-    captureWorkletRef.current?.disconnect();
-    captureWorkletRef.current = undefined;
-    captureSourceRef.current?.disconnect();
-    captureSourceRef.current = undefined;
+    stopCapture();
 
     if (streamRef.current) {
       for (const track of streamRef.current.getTracks()) {
@@ -407,13 +430,72 @@ export function RealtimeVoiceChat() {
     activeModelTranscriptRef.current = "";
   }
 
+  function stopCapture() {
+    captureWorkletRef.current?.port.close();
+    captureWorkletRef.current?.disconnect();
+    captureWorkletRef.current = undefined;
+    captureSourceRef.current?.disconnect();
+    captureSourceRef.current = undefined;
+  }
+
+  function isCurrentSession(sessionGeneration: number) {
+    return sessionGenerationRef.current === sessionGeneration;
+  }
+
+  function isSessionActive(session: Session | undefined) {
+    return Boolean(session && isActiveRef.current);
+  }
+
+  function sendRealtimeInput(
+    session: Session | undefined,
+    params: Parameters<Session["sendRealtimeInput"]>[0]
+  ) {
+    if (!session) {
+      return;
+    }
+
+    try {
+      session.sendRealtimeInput(params);
+    } catch {
+      // The socket can move to CLOSING/CLOSED while capture callbacks unwind.
+    }
+  }
+
+  function sendClientContent(
+    session: Session | undefined,
+    params: Parameters<Session["sendClientContent"]>[0]
+  ) {
+    if (!session) {
+      return;
+    }
+
+    try {
+      session.sendClientContent(params);
+    } catch {
+      // Ignore stale context replay if the session closes during reconnect.
+    }
+  }
+
+  function closeSession(session: Session | undefined) {
+    if (!session) {
+      return;
+    }
+
+    try {
+      session.close();
+    } catch {
+      // The SDK may reject close() if the WebSocket is already closing.
+    }
+  }
+
   function handleTextSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const text = textInput.trim();
-    if (!text || !sessionRef.current) {
+    const session = sessionRef.current;
+    if (!text || !isSessionActive(session)) {
       return;
     }
-    sessionRef.current.sendRealtimeInput({ text });
+    sendRealtimeInput(session, { text });
     addMessage("user", text);
     setTextInput("");
   }
@@ -429,7 +511,12 @@ export function RealtimeVoiceChat() {
       return;
     }
 
-    sessionRef.current?.sendClientContent({
+    const session = sessionRef.current;
+    if (!isSessionActive(session)) {
+      return;
+    }
+
+    sendClientContent(session, {
       turns,
       turnComplete: false
     });
