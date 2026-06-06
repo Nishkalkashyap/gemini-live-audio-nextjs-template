@@ -209,7 +209,10 @@ function ModelSelect() {
 
   return (
     <Select value={model} onValueChange={setModel} disabled={isLive || isStarting}>
-      <SelectTrigger className="h-7 w-[12.5rem] sm:w-[15.5rem]" aria-label="Gemini Live model">
+      <SelectTrigger
+        className="h-7 w-[9.25rem] min-w-0 [&_[data-slot=select-value]]:block [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:truncate"
+        aria-label="Gemini Live model"
+      >
         <SelectValue placeholder="Select model" />
       </SelectTrigger>
       <SelectContent align="end" className="w-[22rem]">
@@ -432,7 +435,7 @@ function VoiceOptionItem({ voice }: { voice: VoiceOption }) {
 function MicSelectorPreview() {
   return (
     <MicSelector>
-      <MicSelectorTrigger disabled>
+      <MicSelectorTrigger disabled className="h-7 w-[8.5rem] min-w-0 justify-between [&>span]:min-w-0 [&>span]:truncate">
         <MicSelectorValue />
       </MicSelectorTrigger>
       <MicSelectorContent>
@@ -468,7 +471,7 @@ function ScreenFrameRateSelect() {
       onValueChange={(value) => setScreenFrameRate(parseScreenFrameRate(value))}
       disabled={!isLive || isStartingScreenShare}
     >
-      <SelectTrigger className="h-7 w-[5.5rem]" aria-label="Screen frame rate">
+      <SelectTrigger className="h-7 w-[6.25rem]" aria-label="Screen frame rate">
         <SelectValue>{formatFrameRate(screenFrameRate)}</SelectValue>
       </SelectTrigger>
       <SelectContent align="end">
