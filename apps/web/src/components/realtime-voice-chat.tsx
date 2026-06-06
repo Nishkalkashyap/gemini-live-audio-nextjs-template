@@ -5,6 +5,7 @@ import {
   GoogleGenAI,
   Modality,
   StartSensitivity,
+  type Content,
   type LiveServerMessage,
   type Session
 } from "@google/genai";
@@ -19,6 +20,7 @@ import {
 
 const INPUT_RATE = 16000;
 const OUTPUT_RATE = 24000;
+const MAX_CONTEXT_TURNS = 16;
 
 const VOICE_OPTIONS = [
   { name: "Zephyr", description: "Bright" },
@@ -277,6 +279,7 @@ export function RealtimeVoiceChat() {
   function handleLiveMessage(message: LiveServerMessage) {
     if (message.setupComplete) {
       setStatus("Live");
+      prefillSessionContext();
       startCapture();
       addMessage("system", "Session connected. Speak into your microphone.");
       return;
@@ -398,6 +401,10 @@ export function RealtimeVoiceChat() {
     }
     playbackContextRef.current = undefined;
     playbackGainRef.current = undefined;
+    activeUserMessageIdRef.current = undefined;
+    activeUserTranscriptRef.current = "";
+    activeModelMessageIdRef.current = undefined;
+    activeModelTranscriptRef.current = "";
   }
 
   function handleTextSubmit(event: FormEvent<HTMLFormElement>) {
@@ -414,6 +421,18 @@ export function RealtimeVoiceChat() {
   function handleVoiceChange(nextVoiceName: string) {
     setVoiceName(nextVoiceName);
     voiceNameRef.current = nextVoiceName;
+  }
+
+  function prefillSessionContext() {
+    const turns = buildContextTurns(messages);
+    if (!turns.length) {
+      return;
+    }
+
+    sessionRef.current?.sendClientContent({
+      turns,
+      turnComplete: false
+    });
   }
 
   function addMessage(role: Message["role"], text: string) {
@@ -536,12 +555,16 @@ export function RealtimeVoiceChat() {
               <Select
                 value={voiceName}
                 onValueChange={handleVoiceChange}
-                disabled={isStarting || isLive}
+                disabled={isStarting}
               >
                 <SelectTrigger className="voice-select-trigger" aria-label="Voice">
                   <span className="voice-select-current">{voiceName}</span>
                 </SelectTrigger>
-                <SelectContent className="voice-select-content" align="start">
+                <SelectContent
+                  className="voice-select-content"
+                  align="start"
+                  sideOffset={6}
+                >
                   <SelectGroup>
                     {VOICE_OPTIONS.map((voice) => (
                       <SelectItem
@@ -598,6 +621,21 @@ function mergeTranscriptChunk(existing: string, chunk: string) {
     return existing + chunk;
   }
   return `${existing} ${chunk}`;
+}
+
+function buildContextTurns(messages: Message[]): Content[] {
+  return messages
+    .filter((message) => {
+      return (
+        (message.role === "user" || message.role === "model") &&
+        message.text.trim().length > 0
+      );
+    })
+    .slice(-MAX_CONTEXT_TURNS)
+    .map((message) => ({
+      role: message.role,
+      parts: [{ text: message.text.trim() }]
+    }));
 }
 
 function calculateLevel(samples: Int16Array) {
