@@ -21,6 +21,7 @@ import type {
   AppConfig,
   ScreenFrameRate,
   Status,
+  ToolApproval,
   TokenPayload,
   VoiceChatContextValue
 } from "./types";
@@ -45,6 +46,17 @@ type ConnectOptions = {
   seedInitialContext: boolean;
 };
 
+type ToolResponsePayload = Record<string, unknown>;
+
+type SensitiveToolDefinition = {
+  name: string;
+  label: string;
+  createApproval: (functionCall: FunctionCall, callId: string) => ToolApproval;
+  execute: (functionCall: FunctionCall) => Promise<ToolResponsePayload>;
+};
+
+type ToolApprovalDecision = "approved" | "denied";
+
 export function useLiveSession(initialChatId?: string): VoiceChatContextValue {
   const [status, setStatus] = useState<Status>("Idle");
   const [model, setModelState] = useState<string>(DEFAULT_LIVE_MODEL_ID);
@@ -62,6 +74,9 @@ export function useLiveSession(initialChatId?: string): VoiceChatContextValue {
   const resumeFallbackGenerationRef = useRef<number | undefined>(undefined);
   const modelRef = useRef(model);
   const voiceNameRef = useRef(voiceName);
+  const pendingToolApprovalsRef = useRef(
+    new Map<string, (decision: ToolApprovalDecision) => void>()
+  );
 
   const audio = useAudioIo({
     onInputLevel: setInputLevel,
@@ -110,7 +125,9 @@ export function useLiveSession(initialChatId?: string): VoiceChatContextValue {
         voiceName
       },
       actions: {
+        approveToolCall,
         createThread,
+        denyToolCall,
         deleteThread,
         selectThread,
         setModel,
@@ -370,6 +387,7 @@ export function useLiveSession(initialChatId?: string): VoiceChatContextValue {
   }
 
   async function cleanup() {
+    resolvePendingToolApprovals("denied");
     isActiveRef.current = false;
     sessionRef.current = undefined;
     screenShare.stopScreenShare();
@@ -542,28 +560,57 @@ export function useLiveSession(initialChatId?: string): VoiceChatContextValue {
 
     const functionResponses = await Promise.all(
       functionCalls.map(async (functionCall) => {
+        const fallbackResponse = {
+          id: functionCall.id,
+          name: functionCall.name,
+          response: { error: "Tool execution failed before completion." }
+        };
+
+        try {
+        const toolCallId = getToolCallId(functionCall);
+        const sensitiveTool = getSensitiveTool(functionCall.name);
+        const toolLabel = sensitiveTool?.label ?? functionCall.name ?? "unknown";
         const toolMessageId = chatThreads.addToolMessage({
-          text: `Using tool: ${functionCall.name ?? "unknown"}`,
+          text: sensitiveTool ? `Approval needed: ${toolLabel}` : `Using tool: ${toolLabel}`,
+          toolApproval: sensitiveTool?.createApproval(functionCall, toolCallId),
           toolName: functionCall.name,
           toolRequestMarkdown: formatToolMarkdown({
             id: functionCall.id,
             name: functionCall.name,
             args: functionCall.args ?? {}
           }),
-          toolStatus: "running"
+          toolStatus: sensitiveTool ? "approval-requested" : "running"
         });
-        const response = await runTool(functionCall);
-        chatThreads.updateToolMessage(toolMessageId, {
-          text: `Used tool: ${functionCall.name ?? "unknown"}`,
-          toolResponseMarkdown: formatToolMarkdown(response),
-          toolStatus: "error" in response ? "error" : "done"
-        });
+        const response = await runToolWithOptionalApproval(
+          functionCall,
+          toolMessageId,
+          toolCallId,
+          sensitiveTool
+        );
 
         return {
           id: functionCall.id,
           name: functionCall.name,
           response
         };
+        } catch (error) {
+          const response = {
+            error: "Tool execution failed before completion.",
+            detail: error instanceof Error ? error.message : String(error)
+          };
+          chatThreads.addToolMessage({
+            text: `Tool failed: ${functionCall.name ?? "unknown"}`,
+            toolName: functionCall.name,
+            toolRequestMarkdown: formatToolMarkdown({
+              id: functionCall.id,
+              name: functionCall.name,
+              args: functionCall.args ?? {}
+            }),
+            toolResponseMarkdown: formatToolMarkdown(response),
+            toolStatus: "error"
+          });
+          return { ...fallbackResponse, response };
+        }
       })
     );
 
@@ -574,11 +621,48 @@ export function useLiveSession(initialChatId?: string): VoiceChatContextValue {
     }
   }
 
-  async function runTool(functionCall: FunctionCall) {
+  async function runToolWithOptionalApproval(
+    functionCall: FunctionCall,
+    toolMessageId: string,
+    toolCallId: string,
+    sensitiveTool: SensitiveToolDefinition | undefined
+  ): Promise<ToolResponsePayload> {
+    if (sensitiveTool) {
+      const decision = await requestToolApproval(toolCallId);
+      if (decision === "denied") {
+        const response = { error: "User denied tool call.", denied: true };
+        chatThreads.updateToolMessage(toolMessageId, {
+          text: `Denied tool: ${sensitiveTool.label}`,
+          toolResponseMarkdown: formatToolMarkdown(response),
+          toolStatus: "denied"
+        });
+        return response;
+      }
+
+      chatThreads.updateToolMessage(toolMessageId, {
+        text: `Using tool: ${sensitiveTool.label}`,
+        toolStatus: "running"
+      });
+    }
+
+    const response = sensitiveTool ? await sensitiveTool.execute(functionCall) : await runTool(functionCall);
+    chatThreads.updateToolMessage(toolMessageId, {
+      text: `Used tool: ${sensitiveTool?.label ?? functionCall.name ?? "unknown"}`,
+      toolResponseMarkdown: formatToolMarkdown(response),
+      toolStatus: "error" in response ? "error" : "done"
+    });
+    return response;
+  }
+
+  async function runTool(functionCall: FunctionCall): Promise<ToolResponsePayload> {
     if (functionCall.name !== CRAWL_URL_FUNCTION_NAME) {
       return { error: `Unknown function: ${functionCall.name ?? "unnamed"}` };
     }
 
+    return executeCrawlUrl(functionCall);
+  }
+
+  async function executeCrawlUrl(functionCall: FunctionCall): Promise<ToolResponsePayload> {
     const url = functionCall.args?.url;
     if (typeof url !== "string") {
       return { error: "crawl_url requires a string url argument." };
@@ -600,6 +684,58 @@ export function useLiveSession(initialChatId?: string): VoiceChatContextValue {
         error: "Crawler request failed.",
         detail: error instanceof Error ? error.message : String(error)
       };
+    }
+  }
+
+  function getSensitiveTool(name: string | undefined) {
+    if (name === CRAWL_URL_FUNCTION_NAME) {
+      return {
+      name: CRAWL_URL_FUNCTION_NAME,
+      label: "Web crawl",
+      createApproval: (functionCall, callId) => {
+        const url = typeof functionCall.args?.url === "string" ? functionCall.args.url : "unknown URL";
+        return {
+          callId,
+          title: "Approve web crawl",
+          description: `Gemini wants to fetch and extract readable content from ${url}.`,
+          approveLabel: "Approve",
+          denyLabel: "Deny"
+        };
+      },
+      execute: executeCrawlUrl
+      } satisfies SensitiveToolDefinition;
+    }
+
+    return undefined;
+  }
+
+  function requestToolApproval(callId: string) {
+    return new Promise<ToolApprovalDecision>((resolve) => {
+      pendingToolApprovalsRef.current.set(callId, resolve);
+    });
+  }
+
+  function approveToolCall(callId: string) {
+    resolvePendingToolApproval(callId, "approved");
+  }
+
+  function denyToolCall(callId: string) {
+    resolvePendingToolApproval(callId, "denied");
+  }
+
+  function resolvePendingToolApproval(callId: string, decision: ToolApprovalDecision) {
+    const resolve = pendingToolApprovalsRef.current.get(callId);
+    if (!resolve) {
+      return;
+    }
+
+    pendingToolApprovalsRef.current.delete(callId);
+    resolve(decision);
+  }
+
+  function resolvePendingToolApprovals(decision: ToolApprovalDecision) {
+    for (const callId of pendingToolApprovalsRef.current.keys()) {
+      resolvePendingToolApproval(callId, decision);
     }
   }
 
@@ -669,6 +805,10 @@ export function useLiveSession(initialChatId?: string): VoiceChatContextValue {
       await stopSession();
     }
   }
+}
+
+function getToolCallId(functionCall: FunctionCall) {
+  return functionCall.id ?? `${functionCall.name ?? "tool"}-${crypto.randomUUID()}`;
 }
 
 function createLiveConnectConfig(

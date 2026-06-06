@@ -285,16 +285,23 @@ function TranscriptMessage({ message }: { message: Message }) {
 }
 
 function ToolMessage({ message }: { message: Message }) {
+  const {
+    actions: { approveToolCall, denyToolCall }
+  } = useVoiceChat();
   const state = getToolState(message.toolStatus);
   const input = parseToolMarkdown(message.toolRequestMarkdown);
   const output = parseToolMarkdown(message.toolResponseMarkdown);
   const errorText =
-    message.toolStatus === "error" ? getToolErrorText(output, message.toolResponseMarkdown) : undefined;
+    message.toolStatus === "error" || message.toolStatus === "denied"
+      ? getToolErrorText(output, message.toolResponseMarkdown)
+      : undefined;
+  const toolApproval =
+    message.toolStatus === "approval-requested" ? message.toolApproval : undefined;
 
   return (
     <AIMessage from="assistant" className="max-w-3xl">
       <MessageContent className="w-full">
-        <Tool defaultOpen={message.toolStatus === "running"} className="bg-card/40">
+        <Tool className="bg-card/40">
           <ToolHeader
             type="dynamic-tool"
             state={state}
@@ -303,6 +310,28 @@ function ToolMessage({ message }: { message: Message }) {
           />
           <ToolContent>
             <ToolInput input={input} />
+            {toolApproval ? (
+              <div className="space-y-3 rounded-md border bg-muted/30 p-3">
+                <div className="grid gap-1">
+                  <div className="text-sm font-medium">{toolApproval.title}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {toolApproval.description}
+                  </div>
+                </div>
+                <div className="flex flex-wrap justify-end gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => denyToolCall(toolApproval.callId)}
+                  >
+                    {toolApproval.denyLabel}
+                  </Button>
+                  <Button size="sm" onClick={() => approveToolCall(toolApproval.callId)}>
+                    {toolApproval.approveLabel}
+                  </Button>
+                </div>
+              </div>
+            ) : null}
             <ToolOutput output={output} errorText={errorText} />
           </ToolContent>
         </Tool>
@@ -589,8 +618,17 @@ function ConnectionStatus() {
 }
 
 function getToolState(status: Message["toolStatus"]): ToolState {
+  if (status === "approval-requested") {
+    return "approval-requested";
+  }
+  if (status === "approval-responded") {
+    return "approval-responded";
+  }
   if (status === "running") {
     return "input-available";
+  }
+  if (status === "denied") {
+    return "output-denied";
   }
   if (status === "error") {
     return "output-error";

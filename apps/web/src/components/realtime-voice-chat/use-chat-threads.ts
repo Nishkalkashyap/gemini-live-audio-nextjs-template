@@ -321,10 +321,40 @@ function createEmptyThread(timestamp = Date.now(), id = createId()): ChatThread 
 function normalizeStoredThread(thread: ChatThread): ChatThread {
   return normalizeThreadTitle({
     ...thread,
-    messages: thread.messages.filter(
-      (message) => !(message.role === "system" && message.text === LEGACY_SETUP_MESSAGE)
-    )
+    messages: thread.messages
+      .filter((message) => !(message.role === "system" && message.text === LEGACY_SETUP_MESSAGE))
+      .map(normalizeStoredMessage)
   });
+}
+
+function normalizeStoredMessage(message: Message): Message {
+  if (message.role !== "tool") {
+    return message;
+  }
+
+  if (message.toolStatus === "approval-requested") {
+    return {
+      ...message,
+      text: `Denied tool: ${message.toolName ?? "tool"}`,
+      toolResponseMarkdown:
+        message.toolResponseMarkdown ??
+        formatToolMarkdown({ error: "Tool approval was abandoned.", denied: true }),
+      toolStatus: "denied"
+    };
+  }
+
+  if (message.toolStatus === "running") {
+    return {
+      ...message,
+      text: `Tool interrupted: ${message.toolName ?? "tool"}`,
+      toolResponseMarkdown:
+        message.toolResponseMarkdown ??
+        formatToolMarkdown({ error: "Tool execution was interrupted." }),
+      toolStatus: "error"
+    };
+  }
+
+  return message;
 }
 
 function upsertMessage(
@@ -356,6 +386,10 @@ function createTitle(text: string) {
     return "New chat";
   }
   return normalized.length > 48 ? `${normalized.slice(0, 45)}...` : normalized;
+}
+
+function formatToolMarkdown(value: unknown) {
+  return `\`\`\`json\n${JSON.stringify(value, null, 2)}\n\`\`\``;
 }
 
 function sortThreads(threads: ChatThread[]) {

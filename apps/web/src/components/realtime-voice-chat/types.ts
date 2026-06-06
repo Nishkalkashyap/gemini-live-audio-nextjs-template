@@ -10,14 +10,31 @@ export type TokenPayload = AppConfig & {
   expiresAt: string;
 };
 
+export type ToolStatus =
+  | "approval-requested"
+  | "approval-responded"
+  | "running"
+  | "done"
+  | "denied"
+  | "error";
+
+export type ToolApproval = {
+  callId: string;
+  title: string;
+  description: string;
+  approveLabel: string;
+  denyLabel: string;
+};
+
 export type Message = {
   id: string;
   role: "user" | "model" | "system" | "error" | "tool";
   text: string;
+  toolApproval?: ToolApproval;
   toolName?: string;
   toolRequestMarkdown?: string;
   toolResponseMarkdown?: string;
-  toolStatus?: "running" | "done" | "error";
+  toolStatus?: ToolStatus;
 };
 
 export type ChatThread = {
@@ -62,7 +79,9 @@ export type VoiceChatState = {
 };
 
 export type VoiceChatActions = {
+  approveToolCall: (callId: string) => void;
   createThread: () => Promise<void>;
+  denyToolCall: (callId: string) => void;
   deleteThread: (threadId: string) => Promise<void>;
   selectThread: (threadId: string) => Promise<void>;
   setScreenFrameRate: (frameRate: ScreenFrameRate) => void;
