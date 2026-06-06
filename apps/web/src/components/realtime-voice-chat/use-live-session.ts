@@ -1,10 +1,12 @@
 "use client";
 
 import {
+  type Content,
   EndSensitivity,
   type FunctionCall,
   GoogleGenAI,
   type GroundingMetadata,
+  type LiveConnectConfig,
   Modality,
   StartSensitivity,
   type LiveServerMessage,
@@ -19,6 +21,20 @@ import { useChatThreads } from "./use-chat-threads";
 
 const SYSTEM_INSTRUCTION =
   "You are a concise, helpful realtime voice assistant. Keep spoken responses brief unless the user asks for detail.";
+const SESSION_RESUMPTION_MAX_AGE_MS = 2 * 60 * 60 * 1000;
+const RESUME_ERROR_PATTERN = /session\s*resum|resum|resume|handle|expired|invalid/i;
+
+type LiveConnectConfigWithInitialHistory = LiveConnectConfig & {
+  historyConfig?: {
+    initialHistoryInClientContent?: boolean;
+  };
+};
+
+type ConnectOptions = {
+  allowResumeFallback: boolean;
+  resumeHandle?: string;
+  seedInitialContext: boolean;
+};
 
 export function useLiveSession(): VoiceChatContextValue {
   const [status, setStatus] = useState<Status>("Idle");
@@ -33,6 +49,7 @@ export function useLiveSession(): VoiceChatContextValue {
   const isActiveRef = useRef(false);
   const sessionGenerationRef = useRef(0);
   const displayedGroundingSignaturesRef = useRef(new Set<string>());
+  const resumeFallbackGenerationRef = useRef<number | undefined>(undefined);
   const modelRef = useRef(model);
   const voiceNameRef = useRef(voiceName);
 
@@ -123,6 +140,8 @@ export function useLiveSession(): VoiceChatContextValue {
     setStatus("Preparing");
     const sessionGeneration = sessionGenerationRef.current + 1;
     sessionGenerationRef.current = sessionGeneration;
+    resumeFallbackGenerationRef.current = undefined;
+    const resumeHandle = getValidSessionResumptionHandle(chatThreads.activeThread);
 
     try {
       const tokenPayload = await createLiveToken();
@@ -131,8 +150,16 @@ export function useLiveSession(): VoiceChatContextValue {
 
       await audio.setupPlayback();
       await audio.setupCapture();
-      await connectLiveSession(tokenPayload.token, sessionGeneration);
+      await connectLiveSession(tokenPayload.token, sessionGeneration, {
+        allowResumeFallback: Boolean(resumeHandle),
+        resumeHandle,
+        seedInitialContext: true
+      });
     } catch (error) {
+      if (resumeHandle && isResumeError(error) && isCurrentSession(sessionGeneration)) {
+        await reconnectWithoutResumption(sessionGeneration);
+        return;
+      }
       chatThreads.addMessage("error", error instanceof Error ? error.message : String(error));
       await cleanup();
       setStatus("Error");
@@ -149,7 +176,11 @@ export function useLiveSession(): VoiceChatContextValue {
     return payload as TokenPayload;
   }
 
-  async function connectLiveSession(token: string, sessionGeneration: number) {
+  async function connectLiveSession(
+    token: string,
+    sessionGeneration: number,
+    options: ConnectOptions
+  ) {
     const ai = new GoogleGenAI({
       apiKey: token,
       httpOptions: { apiVersion: "v1alpha" }
@@ -157,31 +188,29 @@ export function useLiveSession(): VoiceChatContextValue {
 
     setStatus("Connecting");
 
-    sessionRef.current = await ai.live.connect({
+    const config = createLiveConnectConfig(options.resumeHandle, voiceNameRef.current);
+    let setupComplete = false;
+    let sessionActivated = false;
+    const activateSessionAfterSetup = () => {
+      if (
+        sessionActivated ||
+        !setupComplete ||
+        !sessionRef.current ||
+        !isCurrentSession(sessionGeneration)
+      ) {
+        return;
+      }
+
+      sessionActivated = true;
+      setStatus("Live");
+      seedInitialContext(options.seedInitialContext);
+      audio.startCapture();
+      chatThreads.addMessage("system", "Session connected. Speak into your microphone.");
+    };
+
+    const session = await ai.live.connect({
       model: modelRef.current,
-      config: {
-        responseModalities: [Modality.AUDIO],
-        temperature: 0.7,
-        tools: liveTools,
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: voiceNameRef.current }
-          }
-        },
-        systemInstruction: {
-          parts: [{ text: SYSTEM_INSTRUCTION }]
-        },
-        inputAudioTranscription: {},
-        outputAudioTranscription: {},
-        realtimeInputConfig: {
-          automaticActivityDetection: {
-            disabled: false,
-            startOfSpeechSensitivity: StartSensitivity.START_SENSITIVITY_HIGH,
-            endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_HIGH,
-            silenceDurationMs: 250
-          }
-        }
-      },
+      config,
       callbacks: {
         onopen: () => {
           if (!isCurrentSession(sessionGeneration)) {
@@ -193,10 +222,23 @@ export function useLiveSession(): VoiceChatContextValue {
           if (!isCurrentSession(sessionGeneration)) {
             return;
           }
-          handleLiveMessage(message);
+          handleLiveMessage(message, () => {
+            setupComplete = true;
+            activateSessionAfterSetup();
+          });
         },
         onerror: (event) => {
           if (!isCurrentSession(sessionGeneration)) {
+            return;
+          }
+          if (
+            options.allowResumeFallback &&
+            options.resumeHandle &&
+            resumeFallbackGenerationRef.current !== sessionGeneration &&
+            isResumeError(event.message)
+          ) {
+            resumeFallbackGenerationRef.current = sessionGeneration;
+            void reconnectWithoutResumption(sessionGeneration);
             return;
           }
           chatThreads.addMessage("error", event.message || "Gemini Live session error.");
@@ -215,13 +257,27 @@ export function useLiveSession(): VoiceChatContextValue {
         }
       }
     });
+
+    if (!isCurrentSession(sessionGeneration)) {
+      closeSession(session);
+      return;
+    }
+
+    sessionRef.current = session;
+    activateSessionAfterSetup();
   }
 
-  function handleLiveMessage(message: LiveServerMessage) {
+  function handleLiveMessage(
+    message: LiveServerMessage,
+    onSetupComplete: () => void
+  ) {
+    const sessionResumptionUpdate = message.sessionResumptionUpdate;
+    if (sessionResumptionUpdate?.resumable && sessionResumptionUpdate.newHandle) {
+      chatThreads.updateSessionResumptionHandle(sessionResumptionUpdate.newHandle);
+    }
+
     if (message.setupComplete) {
-      setStatus("Live");
-      audio.startCapture();
-      chatThreads.addMessage("system", "Session connected. Speak into your microphone.");
+      onSetupComplete();
       return;
     }
 
@@ -291,7 +347,6 @@ export function useLiveSession(): VoiceChatContextValue {
     if (!isSessionActive(session)) {
       return;
     }
-    const activeSession = session;
 
     sendRealtimeInput(session, {
       audio: {
@@ -333,6 +388,71 @@ export function useLiveSession(): VoiceChatContextValue {
       session.close();
     } catch {
       // The SDK may reject close() if the WebSocket is already closing.
+    }
+  }
+
+  async function reconnectWithoutResumption(previousSessionGeneration: number) {
+    if (!isCurrentSession(previousSessionGeneration)) {
+      return false;
+    }
+
+    const nextSessionGeneration = previousSessionGeneration + 1;
+    sessionGenerationRef.current = nextSessionGeneration;
+    isActiveRef.current = false;
+    audio.stopCapture();
+    closeSession(sessionRef.current);
+    sessionRef.current = undefined;
+    chatThreads.clearSessionResumptionHandle();
+    chatThreads.addMessage(
+      "system",
+      "Session resume expired. Reconnecting with saved transcript context."
+    );
+
+    try {
+      await cleanup();
+      setStatus("Preparing");
+      const tokenPayload = await createLiveToken();
+      setModel(tokenPayload.model);
+      modelRef.current = tokenPayload.model;
+      await audio.setupPlayback();
+      await audio.setupCapture();
+      await connectLiveSession(tokenPayload.token, nextSessionGeneration, {
+        allowResumeFallback: false,
+        seedInitialContext: true
+      });
+      return true;
+    } catch (error) {
+      if (!isCurrentSession(nextSessionGeneration)) {
+        return false;
+      }
+      chatThreads.addMessage("error", error instanceof Error ? error.message : String(error));
+      await cleanup();
+      setStatus("Error");
+      return false;
+    }
+  }
+
+  function seedInitialContext(shouldSeed: boolean) {
+    const session = sessionRef.current;
+    if (!shouldSeed || !session) {
+      return;
+    }
+
+    const contextTurn = createInitialContextTurn(chatThreads.messages);
+    if (!contextTurn) {
+      return;
+    }
+
+    try {
+      session.sendClientContent({ turns: [contextTurn], turnComplete: false });
+      chatThreads.addMessage("system", "Restored saved chat context.");
+    } catch (error) {
+      chatThreads.addMessage(
+        "error",
+        `Could not restore saved chat context: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
     }
   }
 
@@ -472,10 +592,96 @@ export function useLiveSession(): VoiceChatContextValue {
   }
 
   async function stopSessionIfNeeded() {
-    if (sessionRef.current || status === "Preparing" || status === "Connecting" || status === "Live") {
+    if (
+      sessionRef.current ||
+      status === "Preparing" ||
+      status === "Connecting" ||
+      status === "Live"
+    ) {
       await stopSession();
     }
   }
+}
+
+function createLiveConnectConfig(
+  resumeHandle: string | undefined,
+  voiceName: string
+): LiveConnectConfigWithInitialHistory {
+  return {
+    responseModalities: [Modality.AUDIO],
+    temperature: 1.0,
+    tools: liveTools,
+    sessionResumption: resumeHandle ? { handle: resumeHandle } : {},
+    contextWindowCompression: { slidingWindow: {} },
+    historyConfig: { initialHistoryInClientContent: true },
+    speechConfig: {
+      voiceConfig: {
+        prebuiltVoiceConfig: { voiceName }
+      }
+    },
+    systemInstruction: {
+      parts: [{ text: SYSTEM_INSTRUCTION }]
+    },
+    inputAudioTranscription: {},
+    outputAudioTranscription: {},
+    realtimeInputConfig: {
+      automaticActivityDetection: {
+        disabled: false,
+        startOfSpeechSensitivity: StartSensitivity.START_SENSITIVITY_HIGH,
+        endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_LOW,
+        prefixPaddingMs: 20,
+        silenceDurationMs: 700
+      }
+    }
+  };
+}
+
+function createInitialContextTurn(
+  messages: VoiceChatContextValue["state"]["messages"]
+): Content | undefined {
+  const transcript = messages
+    .filter((message) => message.role === "user" || message.role === "model")
+    .map((message) => {
+      const speaker = message.role === "user" ? "User" : "Assistant";
+      return `${speaker}: ${message.text.trim()}`;
+    })
+    .filter((line) => line.length > 0)
+    .join("\n");
+
+  if (!transcript) {
+    return undefined;
+  }
+
+  return {
+    role: "user",
+    parts: [
+      {
+        text:
+          "Use this saved transcript as context for the resumed conversation. " +
+          "Do not answer this context message directly; wait for the user's next input.\n\n" +
+          transcript
+      }
+    ]
+  };
+}
+
+function getValidSessionResumptionHandle(
+  thread: VoiceChatContextValue["state"]["threads"][number] | undefined
+) {
+  if (!thread?.sessionResumptionHandle || !thread.sessionResumptionUpdatedAt) {
+    return undefined;
+  }
+
+  if (Date.now() - thread.sessionResumptionUpdatedAt > SESSION_RESUMPTION_MAX_AGE_MS) {
+    return undefined;
+  }
+
+  return thread.sessionResumptionHandle;
+}
+
+function isResumeError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return RESUME_ERROR_PATTERN.test(message);
 }
 
 function formatToolMarkdown(value: unknown) {

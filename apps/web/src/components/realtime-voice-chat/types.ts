@@ -24,6 +24,8 @@ export type ChatThread = {
   id: string;
   title: string;
   messages: Message[];
+  sessionResumptionHandle?: string;
+  sessionResumptionUpdatedAt?: number;
   createdAt: number;
   updatedAt: number;
 };

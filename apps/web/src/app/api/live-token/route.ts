@@ -1,8 +1,19 @@
-import { EndSensitivity, Modality, StartSensitivity } from "@google/genai";
+import {
+  EndSensitivity,
+  type LiveConnectConfig,
+  Modality,
+  StartSensitivity
+} from "@google/genai";
 import { getGeminiClient, getLiveConfig } from "@/lib/gemini";
 import { liveTools } from "@/lib/live-tools";
 
 export const runtime = "nodejs";
+
+type LiveConnectConfigWithInitialHistory = LiveConnectConfig & {
+  historyConfig?: {
+    initialHistoryInClientContent?: boolean;
+  };
+};
 
 export async function POST() {
   if (!process.env.GEMINI_API_KEY) {
@@ -16,6 +27,23 @@ export async function POST() {
     const { model, voiceName } = getLiveConfig();
     const expireTime = new Date(Date.now() + 30 * 60 * 1000).toISOString();
     const newSessionExpireTime = new Date(Date.now() + 60 * 1000).toISOString();
+    const liveConnectConfig: LiveConnectConfigWithInitialHistory = {
+      responseModalities: [Modality.AUDIO],
+      temperature: 1.0,
+      tools: liveTools,
+      sessionResumption: {},
+      contextWindowCompression: { slidingWindow: {} },
+      historyConfig: { initialHistoryInClientContent: true },
+      realtimeInputConfig: {
+        automaticActivityDetection: {
+          disabled: false,
+          startOfSpeechSensitivity: StartSensitivity.START_SENSITIVITY_HIGH,
+          endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_LOW,
+          prefixPaddingMs: 20,
+          silenceDurationMs: 700
+        }
+      }
+    };
 
     const token = await getGeminiClient().authTokens.create({
       config: {
@@ -24,19 +52,7 @@ export async function POST() {
         newSessionExpireTime,
         liveConnectConstraints: {
           model,
-          config: {
-            responseModalities: [Modality.AUDIO],
-            temperature: 0.7,
-            tools: liveTools,
-            realtimeInputConfig: {
-              automaticActivityDetection: {
-                disabled: false,
-                startOfSpeechSensitivity: StartSensitivity.START_SENSITIVITY_HIGH,
-                endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_HIGH,
-                silenceDurationMs: 250
-              }
-            }
-          }
+          config: liveConnectConfig
         },
         httpOptions: { apiVersion: "v1alpha" }
       }

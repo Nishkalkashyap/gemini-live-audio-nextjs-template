@@ -26,9 +26,11 @@ export function useChatThreads() {
   const activeModelMessageIdRef = useRef<string | undefined>(undefined);
   const activeModelTranscriptRef = useRef("");
 
-  const messages = useMemo(() => {
-    return threads.find((thread) => thread.id === activeThreadId)?.messages ?? [];
+  const activeThread = useMemo(() => {
+    return threads.find((thread) => thread.id === activeThreadId);
   }, [activeThreadId, threads]);
+
+  const messages = activeThread?.messages ?? [];
 
   useEffect(() => {
     transcriptRef.current?.scrollTo({
@@ -104,6 +106,22 @@ export function useChatThreads() {
     }));
   }
 
+  function updateSessionResumptionHandle(handle: string) {
+    updateActiveThread((thread) => ({
+      ...thread,
+      sessionResumptionHandle: handle,
+      sessionResumptionUpdatedAt: Date.now()
+    }));
+  }
+
+  function clearSessionResumptionHandle() {
+    updateActiveThread((thread) => ({
+      ...thread,
+      sessionResumptionHandle: undefined,
+      sessionResumptionUpdatedAt: undefined
+    }));
+  }
+
   function appendUserTranscript(text: string) {
     const nextText = mergeTranscriptChunk(activeUserTranscriptRef.current, text);
     activeUserTranscriptRef.current = nextText;
@@ -157,10 +175,12 @@ export function useChatThreads() {
 
   return {
     activeThreadId,
+    activeThread,
     addMessage,
     addToolMessage,
     appendModelTranscript,
     appendUserTranscript,
+    clearSessionResumptionHandle,
     createThread,
     messages,
     resetActiveModelTranscript,
@@ -169,6 +189,7 @@ export function useChatThreads() {
     selectThread,
     threads,
     transcriptRef,
+    updateSessionResumptionHandle,
     updateToolMessage
   };
 }
