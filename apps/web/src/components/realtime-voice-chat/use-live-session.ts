@@ -19,6 +19,7 @@ import {
   CRAWL_URL_FUNCTION_NAME,
   OPEN_URL_FUNCTION_NAME,
   SCREEN_SHARE_FUNCTION_NAME,
+  STOP_VOICE_CHAT_FUNCTION_NAME,
   TAKE_SCREENSHOT_FUNCTION_NAME,
   liveTools
 } from "@/lib/live-tools";
@@ -57,6 +58,7 @@ type ToolResponsePayload = Record<string, unknown>;
 
 type ToolExecutionResult = {
   response: ToolResponsePayload;
+  stopVoiceChatAfterResponse?: boolean;
   toolImage?: ToolImage;
 };
 
@@ -570,7 +572,7 @@ export function useLiveSession(initialChatId?: string): VoiceChatContextValue {
     }
     const activeSession = session;
 
-    const functionResponses = await Promise.all(
+    const toolResults = await Promise.all(
       functionCalls.map(async (functionCall) => {
         const fallbackResponse = {
           id: functionCall.id,
@@ -601,9 +603,13 @@ export function useLiveSession(initialChatId?: string): VoiceChatContextValue {
           );
 
           return {
-            id: functionCall.id,
-            name: functionCall.name,
-            response
+            functionResponse: {
+              id: functionCall.id,
+              name: functionCall.name,
+              response
+            },
+            stopVoiceChatAfterResponse:
+              functionCall.name === STOP_VOICE_CHAT_FUNCTION_NAME && isStopVoiceChatResponse(response)
           };
         } catch (error) {
           const response = {
@@ -621,13 +627,17 @@ export function useLiveSession(initialChatId?: string): VoiceChatContextValue {
             toolResponseMarkdown: formatToolMarkdown(response),
             toolStatus: "error"
           });
-          return { ...fallbackResponse, response };
+          return { functionResponse: { ...fallbackResponse, response } };
         }
       })
     );
+    const functionResponses = toolResults.map((result) => result.functionResponse);
 
     try {
       activeSession.sendToolResponse({ functionResponses });
+      if (toolResults.some((result) => result.stopVoiceChatAfterResponse)) {
+        void stopSession();
+      }
     } catch {
       // The socket may close while a tool call is running.
     }
@@ -775,6 +785,20 @@ export function useLiveSession(initialChatId?: string): VoiceChatContextValue {
     };
   }
 
+  async function executeStopVoiceChat(): Promise<ToolExecutionResult> {
+    if (!isSessionActive(sessionRef.current)) {
+      return { response: { error: "No active Gemini Live session to stop." } };
+    }
+
+    return {
+      response: {
+        stopping: true,
+        note: "Gemini Live voice chat will stop after this tool response is acknowledged."
+      },
+      stopVoiceChatAfterResponse: true
+    };
+  }
+
   function getSensitiveTool(name: string | undefined) {
     if (name === CRAWL_URL_FUNCTION_NAME) {
       return {
@@ -845,6 +869,21 @@ export function useLiveSession(initialChatId?: string): VoiceChatContextValue {
           denyLabel: "Deny"
         }),
         execute: executeTakeScreenshot
+      } satisfies SensitiveToolDefinition;
+    }
+
+    if (name === STOP_VOICE_CHAT_FUNCTION_NAME) {
+      return {
+        name: STOP_VOICE_CHAT_FUNCTION_NAME,
+        label: "Stop voice chat",
+        createApproval: (_functionCall, callId) => ({
+          callId,
+          title: "Stop voice chat",
+          description: "Gemini wants to end the active voice chat session.",
+          approveLabel: "Stop chat",
+          denyLabel: "Deny"
+        }),
+        execute: executeStopVoiceChat
       } satisfies SensitiveToolDefinition;
     }
 
@@ -973,6 +1012,10 @@ function getFunctionCallUrl(functionCall: FunctionCall) {
 function createScreenshotFilename() {
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   return `gemini-screenshot-${timestamp}.jpg`;
+}
+
+function isStopVoiceChatResponse(response: ToolResponsePayload) {
+  return response.stopping === true && !("error" in response);
 }
 
 function createLiveConnectConfig(

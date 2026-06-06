@@ -17,7 +17,7 @@ Recommended GitHub repository name: `gemini-live-audio-nextjs-template`.
 - Local browser chat threads stored in local storage.
 - Session resumption support with saved transcript context fallback.
 - Screen-share frame streaming with selectable frame rates.
-- Built-in Google Search tool support and a public URL crawl tool example.
+- Built-in Google Search support plus approval-gated custom tools for URL crawling, URL opening, screen sharing, screenshots, and stopping voice chat.
 - shadcn/ui-style interface with mic, voice, transcript, tool, and sidebar components.
 
 ## Tech Stack
@@ -94,7 +94,20 @@ Once connected, the client captures microphone input, converts it to PCM audio, 
 
 Chat threads are stored in browser local storage. The app can reuse recent Gemini session resumption handles when available and falls back to restoring saved transcript context when a resume handle is no longer valid.
 
-The included tool examples show two common patterns: Gemini's native Google Search tool and a custom `crawl_url` function that calls a Next.js API route to fetch readable content from public web pages.
+The included tools show two common Live API patterns:
+
+- Gemini's native Google Search tool, which runs inside the Gemini API and is surfaced from grounding metadata after use.
+- Custom client-executed functions, which the app intercepts, shows to the user for inline approval, executes only after approval, and then sends a tool response back to Gemini.
+
+Custom tools currently include:
+
+| Tool | Behavior |
+| --- | --- |
+| `crawl_url` | Calls the Next.js crawler route to fetch readable content from a public web page. |
+| `open_url` | Opens an approved public URL in a new browser tab. |
+| `screen_share` | Starts or stops the same screen-sharing flow as the toolbar button; when started, frames stream to Gemini at the selected frame rate. |
+| `take_screenshot` | Captures one frame from the active screen share and displays it in chat with a download button. |
+| `stop_voice_chat` | Stops the active Gemini Live voice chat after acknowledging the tool response. |
 
 ## Customization
 
@@ -102,6 +115,7 @@ The included tool examples show two common patterns: Gemini's native Google Sear
 - Change the default voice with `GEMINI_LIVE_VOICE`.
 - Update the assistant behavior in `apps/web/src/components/realtime-voice-chat/use-live-session.ts`.
 - Add, remove, or change Live API tools in `apps/web/src/lib/live-tools.ts`.
+- Implement custom tool execution and approval behavior in `apps/web/src/components/realtime-voice-chat/use-live-session.ts`.
 - Replace the local-storage thread layer with your own database-backed persistence.
 - Adapt the shadcn/ui components under `apps/web/src/components` for your product interface.
 
@@ -119,6 +133,7 @@ pnpm lint
 - Keep `GEMINI_API_KEY` on the server. Do not expose it through `NEXT_PUBLIC_*` variables or client-side code.
 - The browser receives one-use Gemini Live ephemeral tokens instead of the long-lived API key.
 - The example crawler only accepts public `http` and `https` URLs on default ports, blocks localhost and private IP ranges, limits redirects, caps response size, and extracts text from HTML.
+- Custom client-executed tools are approval-gated in the chat UI before they run.
 - Review tool implementations before adding privileged actions, internal network access, or user-specific data.
 
 ## License

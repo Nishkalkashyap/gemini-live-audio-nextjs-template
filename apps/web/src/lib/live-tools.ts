@@ -3,6 +3,7 @@ import { Type, type FunctionDeclaration, type Tool } from "@google/genai";
 export const CRAWL_URL_FUNCTION_NAME = "crawl_url";
 export const OPEN_URL_FUNCTION_NAME = "open_url";
 export const SCREEN_SHARE_FUNCTION_NAME = "screen_share";
+export const STOP_VOICE_CHAT_FUNCTION_NAME = "stop_voice_chat";
 export const TAKE_SCREENSHOT_FUNCTION_NAME = "take_screenshot";
 
 export const crawlUrlFunctionDeclaration = {
@@ -64,6 +65,16 @@ export const takeScreenshotFunctionDeclaration = {
   }
 } satisfies FunctionDeclaration;
 
+export const stopVoiceChatFunctionDeclaration = {
+  name: STOP_VOICE_CHAT_FUNCTION_NAME,
+  description:
+    "Stop the active Gemini Live voice chat session. Use this when the user asks to end, stop, disconnect, or close the voice chat.",
+  parameters: {
+    type: Type.OBJECT,
+    properties: {}
+  }
+} satisfies FunctionDeclaration;
+
 export const liveTools = [
   { googleSearch: {} },
   {
@@ -71,6 +82,7 @@ export const liveTools = [
       crawlUrlFunctionDeclaration,
       openUrlFunctionDeclaration,
       screenShareFunctionDeclaration,
+      stopVoiceChatFunctionDeclaration,
       takeScreenshotFunctionDeclaration
     ]
   }
