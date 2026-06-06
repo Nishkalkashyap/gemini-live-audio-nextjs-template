@@ -1,6 +1,6 @@
 "use client";
 
-import { Mic, Plus, ScreenShare, ScreenShareOff, Send, Square } from "lucide-react";
+import { Mic, Plus, ScreenShare, ScreenShareOff, Send, Square, Trash2 } from "lucide-react";
 import { type FormEvent, type ReactNode } from "react";
 import {
   Select,
@@ -25,7 +25,7 @@ function Layout({ children }: { children: ReactNode }) {
 
 function Sidebar() {
   const {
-    actions: { createThread, selectThread },
+    actions: { createThread, deleteThread, selectThread },
     state: { activeThreadId, threads }
   } = useVoiceChat();
 
@@ -38,18 +38,32 @@ function Sidebar() {
       </button>
       <div className="thread-section-label">Chats</div>
       <nav className="thread-list" aria-label="Past chat history">
-        {threads.map((thread) => (
-          <button
-            aria-current={thread.id === activeThreadId ? "page" : undefined}
-            className="thread-button"
-            key={thread.id}
-            type="button"
-            onClick={() => void selectThread(thread.id)}
-          >
-            <span className="thread-title">{thread.title}</span>
-            <span className="thread-time">{formatThreadTime(thread.updatedAt)}</span>
-          </button>
-        ))}
+        {threads.map((thread) => {
+          const isActive = thread.id === activeThreadId;
+
+          return (
+            <div className={`thread-row${isActive ? " active" : ""}`} key={thread.id}>
+              <button
+                aria-current={isActive ? "page" : undefined}
+                className="thread-button"
+                type="button"
+                onClick={() => void selectThread(thread.id)}
+              >
+                <span className="thread-title">{thread.title}</span>
+                <span className="thread-time">{formatThreadTime(thread.updatedAt)}</span>
+              </button>
+              <button
+                aria-label={`Delete chat: ${thread.title}`}
+                className="delete-thread-button"
+                title="Delete chat"
+                type="button"
+                onClick={() => void deleteThread(thread.id)}
+              >
+                <Trash2 aria-hidden="true" size={15} />
+              </button>
+            </div>
+          );
+        })}
       </nav>
     </aside>
   );

@@ -57,6 +57,7 @@ export type VoiceChatState = {
 
 export type VoiceChatActions = {
   createThread: () => Promise<void>;
+  deleteThread: (threadId: string) => Promise<void>;
   selectThread: (threadId: string) => Promise<void>;
   setScreenFrameRate: (frameRate: ScreenFrameRate) => void;
   setTextInput: (value: string) => void;

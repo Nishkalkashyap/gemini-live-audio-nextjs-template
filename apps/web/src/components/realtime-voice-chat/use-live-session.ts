@@ -110,6 +110,7 @@ export function useLiveSession(initialChatId?: string): VoiceChatContextValue {
       },
       actions: {
         createThread,
+        deleteThread,
         selectThread,
         setScreenFrameRate,
         setTextInput,
@@ -629,6 +630,13 @@ export function useLiveSession(initialChatId?: string): VoiceChatContextValue {
   async function createThread() {
     await stopSessionIfNeeded();
     chatThreads.createThread();
+  }
+
+  async function deleteThread(threadId: string) {
+    if (threadId === chatThreads.activeThreadId) {
+      await stopSessionIfNeeded();
+    }
+    chatThreads.deleteThread(threadId);
   }
 
   async function selectThread(threadId: string) {

@@ -121,6 +121,28 @@ export function useChatThreads(routeThreadId?: string) {
     navigateToThread(threadId);
   }
 
+  function deleteThread(threadId: string) {
+    if (!threads.some((thread) => thread.id === threadId)) {
+      return;
+    }
+
+    const remainingThreads = threads.filter((thread) => thread.id !== threadId);
+    const fallbackThreads = remainingThreads.length ? remainingThreads : [createEmptyThread()];
+    const nextActiveThreadId =
+      threadId === activeThreadId ? fallbackThreads[0].id : activeThreadId;
+
+    if (threadId === activeThreadId) {
+      resetActiveTranscripts();
+    }
+
+    setThreads(fallbackThreads);
+    setActiveThreadId(nextActiveThreadId);
+
+    if (threadId === activeThreadId) {
+      navigateToThread(nextActiveThreadId);
+    }
+  }
+
   function navigateToThread(threadId: string) {
     pendingNavigationThreadIdRef.current = threadId;
     router.push(createThreadPath(threadId));
@@ -228,6 +250,7 @@ export function useChatThreads(routeThreadId?: string) {
     appendUserTranscript,
     clearSessionResumptionHandle,
     createThread,
+    deleteThread,
     messages,
     resetActiveModelTranscript,
     resetActiveTranscripts,

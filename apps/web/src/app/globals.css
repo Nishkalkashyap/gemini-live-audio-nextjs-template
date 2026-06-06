@@ -114,7 +114,7 @@ button:disabled {
 }
 
 .new-thread-button:hover,
-.thread-button:hover {
+.thread-row:hover {
   background: #242424;
 }
 
@@ -136,6 +136,20 @@ button:disabled {
   padding-right: 2px;
 }
 
+.thread-row {
+  position: relative;
+  display: flex;
+  width: 100%;
+  align-items: center;
+  border-radius: 8px;
+  background: transparent;
+}
+
+.thread-row.active {
+  background: #2b2b2b;
+  color: #ffffff;
+}
+
 .thread-button {
   display: grid;
   width: 100%;
@@ -143,16 +157,45 @@ button:disabled {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
-  border-radius: 8px;
+  border-radius: 6px;
   background: transparent;
-  padding: 0 10px;
+  padding: 0 38px 0 10px;
   color: #d9d9d2;
   text-align: left;
 }
 
 .thread-button[aria-current="page"] {
-  background: #2b2b2b;
   color: #ffffff;
+}
+
+.delete-thread-button {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  display: grid;
+  width: 28px;
+  height: 28px;
+  transform: translateY(-50%);
+  place-items: center;
+  border-radius: 6px;
+  background: transparent;
+  color: #8e8e87;
+  opacity: 0;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease,
+    opacity 120ms ease;
+}
+
+.thread-row:hover .delete-thread-button,
+.thread-row.active .delete-thread-button,
+.delete-thread-button:focus-visible {
+  opacity: 1;
+}
+
+.delete-thread-button:hover {
+  background: #3a2220;
+  color: #ffb5ad;
 }
 
 .thread-title {
