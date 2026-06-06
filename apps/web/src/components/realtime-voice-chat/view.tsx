@@ -70,6 +70,7 @@ import {
   SelectTrigger,
   SelectValue
 } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
 import {
   Sidebar,
   SidebarContent,
@@ -88,6 +89,7 @@ import {
   SidebarTrigger
 } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
+import { LIVE_MODEL_OPTIONS } from "@/lib/live-models";
 import { useVoiceChat } from "./context";
 import type { Message, ScreenFrameRate, VoiceOption } from "./types";
 import { VOICE_OPTIONS } from "./voice-options";
@@ -179,7 +181,7 @@ function Main({ children }: { children: ReactNode }) {
 
 function Header() {
   const {
-    state: { activeThreadId, model, threads }
+    state: { activeThreadId, threads }
   } = useVoiceChat();
   const activeThread = threads.find((thread) => thread.id === activeThreadId);
 
@@ -194,10 +196,32 @@ function Header() {
           </h1>
         </div>
       </div>
-      <Badge className="hidden max-w-72 truncate md:inline-flex" variant="secondary">
-        {model}
-      </Badge>
     </header>
+  );
+}
+
+function ModelSelect() {
+  const {
+    actions: { setModel },
+    meta: { isLive, isStarting },
+    state: { model }
+  } = useVoiceChat();
+
+  return (
+    <Select value={model} onValueChange={setModel} disabled={isLive || isStarting}>
+      <SelectTrigger className="h-7 w-[12.5rem] sm:w-[15.5rem]" aria-label="Gemini Live model">
+        <SelectValue placeholder="Select model" />
+      </SelectTrigger>
+      <SelectContent align="end" className="w-[22rem]">
+        <SelectGroup>
+          {LIVE_MODEL_OPTIONS.map((option) => (
+            <SelectItem key={option.id} value={option.id} textValue={`${option.label} ${option.id}`}>
+              {option.label}
+            </SelectItem>
+          ))}
+        </SelectGroup>
+      </SelectContent>
+    </Select>
   );
 }
 
@@ -309,10 +333,20 @@ function Composer() {
         </PromptInputBody>
         <PromptInputFooter>
           <PromptInputTools className="flex-wrap">
-            <VoiceSelect />
-            <MicSelectorPreview />
-            <ScreenFrameRateSelect />
-            <ScreenShareControls />
+            <ControlGroup>
+              <ModelSelect />
+            </ControlGroup>
+            <ToolbarSeparator />
+            <ControlGroup>
+              <VoiceSelect />
+              <MicSelectorPreview />
+            </ControlGroup>
+            <ToolbarSeparator />
+            <ControlGroup>
+              <ScreenFrameRateSelect />
+              <ScreenShareControls />
+            </ControlGroup>
+            <ToolbarSeparator />
             <VoiceControls />
           </PromptInputTools>
           <PromptInputSubmit
@@ -324,6 +358,19 @@ function Composer() {
       <AudioMeters />
       <ConnectionStatus />
     </div>
+  );
+}
+
+function ControlGroup({ children }: { children: ReactNode }) {
+  return <span className="flex items-center gap-1">{children}</span>;
+}
+
+function ToolbarSeparator() {
+  return (
+    <Separator
+      orientation="vertical"
+      className="mx-1 h-5 self-center data-vertical:h-5 data-vertical:self-center"
+    />
   );
 }
 

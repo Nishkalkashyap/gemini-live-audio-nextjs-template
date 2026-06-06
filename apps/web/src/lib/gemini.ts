@@ -1,10 +1,11 @@
 import { GoogleGenAI } from "@google/genai";
+import { resolveLiveModelId } from "@/lib/live-models";
 
 let client: GoogleGenAI | undefined;
 
 export function getLiveConfig() {
   return {
-    model: process.env.GEMINI_LIVE_MODEL ?? "gemini-3.1-flash-live-preview",
+    model: resolveLiveModelId(process.env.GEMINI_LIVE_MODEL),
     voiceName: process.env.GEMINI_LIVE_VOICE ?? "Aoede"
   };
 }

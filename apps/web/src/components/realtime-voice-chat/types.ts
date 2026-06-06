@@ -39,6 +39,12 @@ export type VoiceOption = {
   description: string;
 };
 
+export type ModelOption = {
+  id: string;
+  label: string;
+  description: string;
+};
+
 export type VoiceChatState = {
   activeThreadId: string;
   inputLevel: number;
@@ -60,6 +66,7 @@ export type VoiceChatActions = {
   deleteThread: (threadId: string) => Promise<void>;
   selectThread: (threadId: string) => Promise<void>;
   setScreenFrameRate: (frameRate: ScreenFrameRate) => void;
+  setModel: (model: string) => void;
   setTextInput: (value: string) => void;
   setVoiceName: (voiceName: string) => void;
   startScreenShare: () => Promise<void>;

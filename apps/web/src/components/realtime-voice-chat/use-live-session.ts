@@ -14,6 +14,7 @@ import {
   type Session
 } from "@google/genai";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { DEFAULT_LIVE_MODEL_ID } from "@/lib/live-models";
 import { CRAWL_URL_FUNCTION_NAME, liveTools } from "@/lib/live-tools";
 import { arrayBufferToBase64 } from "./audio-utils";
 import type {
@@ -46,12 +47,12 @@ type ConnectOptions = {
 
 export function useLiveSession(initialChatId?: string): VoiceChatContextValue {
   const [status, setStatus] = useState<Status>("Idle");
-  const [model, setModel] = useState("gemini-3.1-flash-live-preview");
+  const [model, setModelState] = useState<string>(DEFAULT_LIVE_MODEL_ID);
   const [voiceName, setVoiceNameState] = useState("Aoede");
   const [textInput, setTextInput] = useState("");
   const [inputLevel, setInputLevel] = useState(0);
   const [outputLevel, setOutputLevel] = useState(0);
-  const [screenFrameRate, setScreenFrameRateState] = useState<ScreenFrameRate>(1);
+  const [screenFrameRate, setScreenFrameRateState] = useState<ScreenFrameRate>(0.5);
 
   const chatThreads = useChatThreads(initialChatId);
   const sessionRef = useRef<Session | undefined>(undefined);
@@ -112,6 +113,7 @@ export function useLiveSession(initialChatId?: string): VoiceChatContextValue {
         createThread,
         deleteThread,
         selectThread,
+        setModel,
         setScreenFrameRate,
         setTextInput,
         setVoiceName,
@@ -154,7 +156,8 @@ export function useLiveSession(initialChatId?: string): VoiceChatContextValue {
     try {
       const response = await fetch("/api/config");
       const config = (await response.json()) as AppConfig;
-      setModel(config.model);
+      setModelState(config.model);
+      modelRef.current = config.model;
       setVoiceNameState(config.voiceName);
       voiceNameRef.current = config.voiceName;
     } catch {
@@ -171,7 +174,7 @@ export function useLiveSession(initialChatId?: string): VoiceChatContextValue {
 
     try {
       const tokenPayload = await createLiveToken();
-      setModel(tokenPayload.model);
+      setModelState(tokenPayload.model);
       modelRef.current = tokenPayload.model;
 
       await audio.setupPlayback();
@@ -193,7 +196,11 @@ export function useLiveSession(initialChatId?: string): VoiceChatContextValue {
   }
 
   async function createLiveToken() {
-    const response = await fetch("/api/live-token", { method: "POST" });
+    const response = await fetch("/api/live-token", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: modelRef.current })
+    });
     const payload = await response.json();
     if (!response.ok) {
       const errorPayload = payload as { error?: string; detail?: string };
@@ -450,7 +457,7 @@ export function useLiveSession(initialChatId?: string): VoiceChatContextValue {
       await cleanup();
       setStatus("Preparing");
       const tokenPayload = await createLiveToken();
-      setModel(tokenPayload.model);
+      setModelState(tokenPayload.model);
       modelRef.current = tokenPayload.model;
       await audio.setupPlayback();
       await audio.setupCapture();
@@ -508,6 +515,11 @@ export function useLiveSession(initialChatId?: string): VoiceChatContextValue {
   function setVoiceName(nextVoiceName: string) {
     setVoiceNameState(nextVoiceName);
     voiceNameRef.current = nextVoiceName;
+  }
+
+  function setModel(nextModel: string) {
+    setModelState(nextModel);
+    modelRef.current = nextModel;
   }
 
   function setScreenFrameRate(nextFrameRate: ScreenFrameRate) {
