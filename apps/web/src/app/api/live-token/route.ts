@@ -17,6 +17,8 @@ type LiveConnectConfigWithInitialHistory = LiveConnectConfig & {
   };
 };
 
+type LiveMediaResolutionName = "medium" | "high";
+
 export async function POST(request: Request) {
   if (!process.env.GEMINI_API_KEY) {
     return Response.json(
@@ -27,7 +29,9 @@ export async function POST(request: Request) {
 
   try {
     const { model: defaultModel, voiceName } = getLiveConfig();
-    const requestedModel = await readRequestedModel(request);
+    const requestBody = await readTokenRequestBody(request);
+    const requestedModel = requestBody.model;
+    const requestedMediaResolution = requestBody.mediaResolution;
 
     if (requestedModel && !isLiveModelId(requestedModel)) {
       return Response.json(
@@ -40,12 +44,25 @@ export async function POST(request: Request) {
     }
 
     const model = requestedModel ?? defaultModel;
+    let mediaResolution: LiveMediaResolutionName = "high";
+    if (requestedMediaResolution) {
+      if (!isLiveMediaResolution(requestedMediaResolution)) {
+        return Response.json(
+          {
+            error: "Unsupported Gemini Live media resolution.",
+            allowedMediaResolutions: ["medium", "high"]
+          },
+          { status: 400 }
+        );
+      }
+      mediaResolution = requestedMediaResolution;
+    }
     const expireTime = new Date(Date.now() + 30 * 60 * 1000).toISOString();
     const newSessionExpireTime = new Date(Date.now() + 60 * 1000).toISOString();
     const liveConnectConfig: LiveConnectConfigWithInitialHistory = {
       responseModalities: [Modality.AUDIO],
       temperature: 1.0,
-      mediaResolution: MediaResolution.MEDIA_RESOLUTION_MEDIUM,
+      mediaResolution: toGeminiMediaResolution(mediaResolution),
       tools: liveTools,
       sessionResumption: {},
       contextWindowCompression: { slidingWindow: {} },
@@ -92,11 +109,25 @@ export async function POST(request: Request) {
   }
 }
 
-async function readRequestedModel(request: Request) {
+async function readTokenRequestBody(request: Request) {
   try {
-    const body = (await request.json()) as { model?: unknown };
-    return typeof body.model === "string" ? body.model : undefined;
+    const body = (await request.json()) as { mediaResolution?: unknown; model?: unknown };
+    return {
+      mediaResolution:
+        typeof body.mediaResolution === "string" ? body.mediaResolution : undefined,
+      model: typeof body.model === "string" ? body.model : undefined
+    };
   } catch {
-    return undefined;
+    return {};
   }
+}
+
+function isLiveMediaResolution(value: string): value is LiveMediaResolutionName {
+  return value === "medium" || value === "high";
+}
+
+function toGeminiMediaResolution(mediaResolution: LiveMediaResolutionName) {
+  return mediaResolution === "high"
+    ? MediaResolution.MEDIA_RESOLUTION_HIGH
+    : MediaResolution.MEDIA_RESOLUTION_MEDIUM;
 }

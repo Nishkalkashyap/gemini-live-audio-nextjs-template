@@ -9,10 +9,12 @@ import {
   Plus,
   ScreenShare,
   ScreenShareOff,
+  Settings2,
   Square,
   Trash2
 } from "lucide-react";
-import { type ComponentProps, type ReactNode, useEffect, useState } from "react";
+import { type ComponentProps, type ReactNode, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Conversation,
   ConversationContent,
@@ -61,7 +63,7 @@ import {
   VoiceSelectorTrigger
 } from "@/components/ai-elements/voice-selector";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import {
   Select,
@@ -71,7 +73,6 @@ import {
   SelectTrigger,
   SelectValue
 } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import {
   Sidebar,
   SidebarContent,
@@ -92,13 +93,32 @@ import {
 import { cn } from "@/lib/utils";
 import { LIVE_MODEL_OPTIONS } from "@/lib/live-models";
 import { useVoiceChat } from "./context";
-import type { Message, ScreenFrameRate, VoiceOption } from "./types";
+import type {
+  LiveMediaResolution,
+  Message,
+  ScreenFrameRate,
+  ToolPermissionMode,
+  VoiceOption
+} from "./types";
 import { VOICE_OPTIONS } from "./voice-options";
+
+const LIVE_MEDIA_RESOLUTION_OPTIONS: Array<{
+  label: string;
+  value: LiveMediaResolution;
+}> = [
+  { label: "High res", value: "high" },
+  { label: "Medium res", value: "medium" }
+];
 
 const SCREEN_FRAME_RATE_OPTIONS: Array<{ label: string; value: ScreenFrameRate }> = [
   { label: "0.2 FPS", value: 0.2 },
   { label: "0.5 FPS", value: 0.5 },
   { label: "1 FPS", value: 1 }
+];
+
+const TOOL_PERMISSION_OPTIONS: Array<{ label: string; value: ToolPermissionMode }> = [
+  { label: "Always ask", value: "always-ask" },
+  { label: "Always allow", value: "always-allow" }
 ];
 
 type ToolState = ComponentProps<typeof ToolHeader>["state"];
@@ -211,7 +231,7 @@ function ModelSelect() {
   return (
     <Select value={model} onValueChange={setModel} disabled={isLive || isStarting}>
       <SelectTrigger
-        className="h-7 w-[9.25rem] min-w-0 [&_[data-slot=select-value]]:block [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:truncate"
+        className="h-7 w-[9.5rem] min-w-0 rounded-md bg-muted/30 text-xs [&_[data-slot=select-value]]:block [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:truncate"
         aria-label="Gemini Live model"
       >
         <SelectValue placeholder="Select model" />
@@ -220,6 +240,65 @@ function ModelSelect() {
         <SelectGroup>
           {LIVE_MODEL_OPTIONS.map((option) => (
             <SelectItem key={option.id} value={option.id} textValue={`${option.label} ${option.id}`}>
+              {option.label}
+            </SelectItem>
+          ))}
+        </SelectGroup>
+      </SelectContent>
+    </Select>
+  );
+}
+
+function MediaResolutionSelect({ className }: { className?: string }) {
+  const {
+    actions: { setMediaResolution },
+    meta: { isLive, isStarting },
+    state: { mediaResolution }
+  } = useVoiceChat();
+
+  return (
+    <Select
+      value={mediaResolution}
+      onValueChange={(value) => setMediaResolution(parseMediaResolution(value))}
+      disabled={isLive || isStarting}
+    >
+      <SelectTrigger
+        className={cn("h-7 w-[7rem] rounded-md bg-muted/30 text-xs", className)}
+        aria-label="Media resolution"
+      >
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent align="end">
+        <SelectGroup>
+          {LIVE_MEDIA_RESOLUTION_OPTIONS.map((option) => (
+            <SelectItem key={option.value} value={option.value}>
+              {option.label}
+            </SelectItem>
+          ))}
+        </SelectGroup>
+      </SelectContent>
+    </Select>
+  );
+}
+
+function ToolPermissionSelect() {
+  const {
+    actions: { setToolPermissionMode },
+    state: { toolPermissionMode }
+  } = useVoiceChat();
+
+  return (
+    <Select
+      value={toolPermissionMode}
+      onValueChange={(value) => setToolPermissionMode(parseToolPermissionMode(value))}
+    >
+      <SelectTrigger className="h-7 w-[7.5rem] rounded-md bg-muted/30 text-xs" aria-label="Tool permission">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent align="end">
+        <SelectGroup>
+          {TOOL_PERMISSION_OPTIONS.map((option) => (
+            <SelectItem key={option.value} value={option.value}>
               {option.label}
             </SelectItem>
           ))}
@@ -392,25 +471,17 @@ function Composer() {
             onChange={(event) => setTextInput(event.currentTarget.value)}
           />
         </PromptInputBody>
-        <PromptInputFooter>
-          <PromptInputTools className="flex-wrap">
-            <ControlGroup>
-              <ModelSelect />
-            </ControlGroup>
-            <ToolbarSeparator />
-            <ControlGroup>
-              <VoiceSelect />
-              <MicSelectorPreview />
-            </ControlGroup>
-            <ToolbarSeparator />
-            <ControlGroup>
-              <ScreenFrameRateSelect />
-              <ScreenShareControls />
-            </ControlGroup>
-            <ToolbarSeparator />
+        <PromptInputFooter className="items-end">
+          <PromptInputTools className="flex min-w-0 flex-1 flex-nowrap items-center gap-1.5 pb-0.5">
+            <ModelSelect />
+            <ToolPermissionSelect />
+            <VoiceSelect />
+            <ScreenShareControls />
             <VoiceControls />
+            <AdvancedSettingsMenu />
           </PromptInputTools>
           <PromptInputSubmit
+            className="mb-0.5 shrink-0"
             disabled={!canSendText || !textInput.trim()}
             status={status === "Error" ? "error" : "ready"}
           />
@@ -419,19 +490,6 @@ function Composer() {
       <AudioMeters />
       <ConnectionStatus />
     </div>
-  );
-}
-
-function ControlGroup({ children }: { children: ReactNode }) {
-  return <span className="flex items-center gap-1">{children}</span>;
-}
-
-function ToolbarSeparator() {
-  return (
-    <Separator
-      orientation="vertical"
-      className="mx-1 h-5 self-center data-vertical:h-5 data-vertical:self-center"
-    />
   );
 }
 
@@ -446,7 +504,11 @@ function VoiceSelect() {
   return (
     <VoiceSelector value={voiceName} onValueChange={(value) => value && setVoiceName(value)}>
       <VoiceSelectorTrigger asChild>
-        <PromptInputButton disabled={isDisabled} tooltip="Voice selector">
+        <PromptInputButton
+          className="h-7 rounded-md bg-muted/30 text-xs"
+          disabled={isDisabled}
+          tooltip="Voice selector"
+        >
           <Mic className="size-4" />
           <span className="max-w-24 truncate">{voiceName}</span>
         </PromptInputButton>
@@ -490,10 +552,122 @@ function VoiceOptionItem({ voice }: { voice: VoiceOption }) {
   );
 }
 
-function MicSelectorPreview() {
+function AdvancedSettingsMenu() {
+  const detailsRef = useRef<HTMLDetailsElement>(null);
+  const summaryRef = useRef<HTMLElement>(null);
+  const [isOpen, setIsOpen] = useState(false);
+  const [position, setPosition] = useState({ bottom: 0, right: 0 });
+
+  function updateMenuPosition() {
+    const triggerRect = summaryRef.current?.getBoundingClientRect();
+
+    if (!triggerRect) {
+      return;
+    }
+
+    setPosition({
+      bottom: Math.max(8, window.innerHeight - triggerRect.top + 8),
+      right: Math.max(8, window.innerWidth - triggerRect.right)
+    });
+  }
+
+  useEffect(() => {
+    const currentDetails = detailsRef.current;
+    if (!currentDetails) {
+      return;
+    }
+    const details = currentDetails;
+
+    function syncOpenState() {
+      const nextOpen = details.open;
+      if (nextOpen) {
+        updateMenuPosition();
+      }
+      setIsOpen(nextOpen);
+    }
+
+    const observer = new MutationObserver(syncOpenState);
+    details.addEventListener("toggle", syncOpenState);
+    observer.observe(details, { attributeFilter: ["open"], attributes: true });
+    syncOpenState();
+
+    return () => {
+      details.removeEventListener("toggle", syncOpenState);
+      observer.disconnect();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    updateMenuPosition();
+    window.addEventListener("resize", updateMenuPosition);
+    window.addEventListener("scroll", updateMenuPosition, true);
+
+    return () => {
+      window.removeEventListener("resize", updateMenuPosition);
+      window.removeEventListener("scroll", updateMenuPosition, true);
+    };
+  }, [isOpen]);
+
+  return (
+    <>
+      <details
+        className="relative shrink-0"
+        ref={detailsRef}
+      >
+        <summary
+          aria-label="More chat settings"
+          className={cn(
+            buttonVariants({ variant: "ghost", size: "icon-sm" }),
+            "size-8 cursor-pointer list-none p-0 marker:hidden [&::-webkit-details-marker]:hidden"
+          )}
+          ref={summaryRef}
+        >
+          <Settings2 className="size-4" />
+        </summary>
+      </details>
+      {isOpen ? createPortal(<AdvancedSettingsPanel position={position} />, document.body) : null}
+    </>
+  );
+}
+
+function AdvancedSettingsPanel({ position }: { position: { bottom: number; right: number } }) {
+  return (
+    <div
+      role="dialog"
+      aria-label="More chat settings"
+      className="fixed z-50 grid w-72 gap-3 rounded-lg bg-popover p-3 text-sm text-popover-foreground shadow-md ring-1 ring-foreground/10"
+      style={{ bottom: position.bottom, right: position.right }}
+    >
+      <div className="grid gap-1">
+        <div className="text-xs font-medium text-muted-foreground">Microphone</div>
+        <MicSelectorPreview className="w-full" />
+      </div>
+      <div className="grid gap-1">
+        <div className="text-xs font-medium text-muted-foreground">Screen frame rate</div>
+        <ScreenFrameRateSelect className="w-full" />
+      </div>
+      <div className="grid gap-1">
+        <div className="text-xs font-medium text-muted-foreground">Image quality</div>
+        <MediaResolutionSelect className="w-full" />
+      </div>
+    </div>
+  );
+}
+
+function MicSelectorPreview({ className }: { className?: string }) {
   return (
     <MicSelector>
-      <MicSelectorTrigger disabled className="h-7 w-[8.5rem] min-w-0 justify-between [&>span]:min-w-0 [&>span]:truncate">
+      <MicSelectorTrigger
+        disabled
+        className={cn(
+          "h-7 w-[8.75rem] min-w-0 justify-between rounded-md bg-muted/30 text-xs [&>span]:min-w-0 [&>span]:truncate",
+          className
+        )}
+      >
         <MicSelectorValue />
       </MicSelectorTrigger>
       <MicSelectorContent>
@@ -516,7 +690,7 @@ function MicSelectorPreview() {
   );
 }
 
-function ScreenFrameRateSelect() {
+function ScreenFrameRateSelect({ className }: { className?: string }) {
   const {
     actions: { setScreenFrameRate },
     meta: { isLive },
@@ -529,7 +703,10 @@ function ScreenFrameRateSelect() {
       onValueChange={(value) => setScreenFrameRate(parseScreenFrameRate(value))}
       disabled={!isLive || isStartingScreenShare}
     >
-      <SelectTrigger className="h-7 w-[6.25rem]" aria-label="Screen frame rate">
+      <SelectTrigger
+        className={cn("h-7 w-[5.75rem] rounded-md bg-muted/30 text-xs", className)}
+        aria-label="Screen frame rate"
+      >
         <SelectValue>{formatFrameRate(screenFrameRate)}</SelectValue>
       </SelectTrigger>
       <SelectContent align="end">
@@ -689,6 +866,10 @@ function getToolErrorText(output: unknown, fallback: string | undefined) {
   return fallback;
 }
 
+function parseMediaResolution(value: string): LiveMediaResolution {
+  return value === "medium" ? "medium" : "high";
+}
+
 function parseScreenFrameRate(value: string): ScreenFrameRate {
   if (value === "0.2") {
     return 0.2;
@@ -697,6 +878,10 @@ function parseScreenFrameRate(value: string): ScreenFrameRate {
     return 0.5;
   }
   return 1;
+}
+
+function parseToolPermissionMode(value: string): ToolPermissionMode {
+  return value === "always-allow" ? "always-allow" : "always-ask";
 }
 
 function formatFrameRate(value: ScreenFrameRate) {

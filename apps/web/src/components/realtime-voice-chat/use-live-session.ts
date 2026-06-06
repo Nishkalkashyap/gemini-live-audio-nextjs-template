@@ -26,10 +26,12 @@ import {
 import { arrayBufferToBase64 } from "./audio-utils";
 import type {
   AppConfig,
+  LiveMediaResolution,
   ScreenFrameRate,
   Status,
   ToolApproval,
   ToolImage,
+  ToolPermissionMode,
   TokenPayload,
   VoiceChatContextValue
 } from "./types";
@@ -78,7 +80,10 @@ export function useLiveSession(initialChatId?: string): VoiceChatContextValue {
   const [textInput, setTextInput] = useState("");
   const [inputLevel, setInputLevel] = useState(0);
   const [outputLevel, setOutputLevel] = useState(0);
+  const [mediaResolution, setMediaResolutionState] = useState<LiveMediaResolution>("high");
   const [screenFrameRate, setScreenFrameRateState] = useState<ScreenFrameRate>(0.5);
+  const [toolPermissionMode, setToolPermissionModeState] =
+    useState<ToolPermissionMode>("always-ask");
 
   const chatThreads = useChatThreads(initialChatId);
   const sessionRef = useRef<Session | undefined>(undefined);
@@ -86,7 +91,9 @@ export function useLiveSession(initialChatId?: string): VoiceChatContextValue {
   const sessionGenerationRef = useRef(0);
   const displayedGroundingSignaturesRef = useRef(new Set<string>());
   const resumeFallbackGenerationRef = useRef<number | undefined>(undefined);
+  const mediaResolutionRef = useRef(mediaResolution);
   const modelRef = useRef(model);
+  const toolPermissionModeRef = useRef(toolPermissionMode);
   const voiceNameRef = useRef(voiceName);
   const pendingToolApprovalsRef = useRef(
     new Map<string, (decision: ToolApprovalDecision) => void>()
@@ -105,6 +112,14 @@ export function useLiveSession(initialChatId?: string): VoiceChatContextValue {
   useEffect(() => {
     modelRef.current = model;
   }, [model]);
+
+  useEffect(() => {
+    mediaResolutionRef.current = mediaResolution;
+  }, [mediaResolution]);
+
+  useEffect(() => {
+    toolPermissionModeRef.current = toolPermissionMode;
+  }, [toolPermissionMode]);
 
   useEffect(() => {
     voiceNameRef.current = voiceName;
@@ -128,6 +143,7 @@ export function useLiveSession(initialChatId?: string): VoiceChatContextValue {
         inputLevel,
         isScreenSharing: screenShare.isScreenSharing,
         isStartingScreenShare: screenShare.isStartingScreenShare,
+        mediaResolution,
         messages: chatThreads.messages,
         model,
         outputLevel,
@@ -135,6 +151,7 @@ export function useLiveSession(initialChatId?: string): VoiceChatContextValue {
         screenShareError: screenShare.screenShareError,
         status,
         textInput,
+        toolPermissionMode,
         threads: chatThreads.threads,
         voiceName
       },
@@ -144,9 +161,11 @@ export function useLiveSession(initialChatId?: string): VoiceChatContextValue {
         denyToolCall,
         deleteThread,
         selectThread,
+        setMediaResolution,
         setModel,
         setScreenFrameRate,
         setTextInput,
+        setToolPermissionMode,
         setVoiceName,
         startScreenShare,
         startSession,
@@ -170,6 +189,7 @@ export function useLiveSession(initialChatId?: string): VoiceChatContextValue {
       inputLevel,
       isLive,
       isStarting,
+      mediaResolution,
       model,
       outputLevel,
       screenFrameRate,
@@ -179,6 +199,7 @@ export function useLiveSession(initialChatId?: string): VoiceChatContextValue {
       screenShare.stopScreenShare,
       status,
       textInput,
+      toolPermissionMode,
       voiceName
     ]
   );
@@ -230,7 +251,10 @@ export function useLiveSession(initialChatId?: string): VoiceChatContextValue {
     const response = await fetch("/api/live-token", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model: modelRef.current })
+      body: JSON.stringify({
+        mediaResolution: mediaResolutionRef.current,
+        model: modelRef.current
+      })
     });
     const payload = await response.json();
     if (!response.ok) {
@@ -252,7 +276,11 @@ export function useLiveSession(initialChatId?: string): VoiceChatContextValue {
 
     setStatus("Connecting");
 
-    const config = createLiveConnectConfig(options.resumeHandle, voiceNameRef.current);
+    const config = createLiveConnectConfig(
+      options.resumeHandle,
+      voiceNameRef.current,
+      mediaResolutionRef.current
+    );
     let setupComplete = false;
     let sessionActivated = false;
     const activateSessionAfterSetup = () => {
@@ -554,8 +582,18 @@ export function useLiveSession(initialChatId?: string): VoiceChatContextValue {
     modelRef.current = nextModel;
   }
 
+  function setMediaResolution(nextMediaResolution: LiveMediaResolution) {
+    setMediaResolutionState(nextMediaResolution);
+    mediaResolutionRef.current = nextMediaResolution;
+  }
+
   function setScreenFrameRate(nextFrameRate: ScreenFrameRate) {
     setScreenFrameRateState(nextFrameRate);
+  }
+
+  function setToolPermissionMode(nextMode: ToolPermissionMode) {
+    setToolPermissionModeState(nextMode);
+    toolPermissionModeRef.current = nextMode;
   }
 
   async function startScreenShare() {
@@ -583,23 +621,30 @@ export function useLiveSession(initialChatId?: string): VoiceChatContextValue {
         try {
           const toolCallId = getToolCallId(functionCall);
           const sensitiveTool = getSensitiveTool(functionCall.name);
+          const shouldAskForApproval =
+            Boolean(sensitiveTool) && toolPermissionModeRef.current === "always-ask";
           const toolLabel = sensitiveTool?.label ?? functionCall.name ?? "unknown";
           const toolMessageId = chatThreads.addToolMessage({
-            text: sensitiveTool ? `Approval needed: ${toolLabel}` : `Using tool: ${toolLabel}`,
-            toolApproval: sensitiveTool?.createApproval(functionCall, toolCallId),
+            text: shouldAskForApproval
+              ? `Approval needed: ${toolLabel}`
+              : `Using tool: ${toolLabel}`,
+            toolApproval: shouldAskForApproval
+              ? sensitiveTool?.createApproval(functionCall, toolCallId)
+              : undefined,
             toolName: functionCall.name,
             toolRequestMarkdown: formatToolMarkdown({
               id: functionCall.id,
               name: functionCall.name,
               args: functionCall.args ?? {}
             }),
-            toolStatus: sensitiveTool ? "approval-requested" : "running"
+            toolStatus: shouldAskForApproval ? "approval-requested" : "running"
           });
           const response = await runToolWithOptionalApproval(
             functionCall,
             toolMessageId,
             toolCallId,
-            sensitiveTool
+            sensitiveTool,
+            shouldAskForApproval
           );
 
           return {
@@ -647,9 +692,10 @@ export function useLiveSession(initialChatId?: string): VoiceChatContextValue {
     functionCall: FunctionCall,
     toolMessageId: string,
     toolCallId: string,
-    sensitiveTool: SensitiveToolDefinition | undefined
+    sensitiveTool: SensitiveToolDefinition | undefined,
+    shouldAskForApproval: boolean
   ): Promise<ToolResponsePayload> {
-    if (sensitiveTool) {
+    if (sensitiveTool && shouldAskForApproval) {
       const decision = await requestToolApproval(toolCallId);
       if (decision === "denied") {
         const response = { error: "User denied tool call.", denied: true };
@@ -1018,14 +1064,21 @@ function isStopVoiceChatResponse(response: ToolResponsePayload) {
   return response.stopping === true && !("error" in response);
 }
 
+function toGeminiMediaResolution(mediaResolution: LiveMediaResolution) {
+  return mediaResolution === "high"
+    ? MediaResolution.MEDIA_RESOLUTION_HIGH
+    : MediaResolution.MEDIA_RESOLUTION_MEDIUM;
+}
+
 function createLiveConnectConfig(
   resumeHandle: string | undefined,
-  voiceName: string
+  voiceName: string,
+  mediaResolution: LiveMediaResolution
 ): LiveConnectConfigWithInitialHistory {
   return {
     responseModalities: [Modality.AUDIO],
     temperature: 1.0,
-    mediaResolution: MediaResolution.MEDIA_RESOLUTION_MEDIUM,
+    mediaResolution: toGeminiMediaResolution(mediaResolution),
     tools: liveTools,
     sessionResumption: resumeHandle ? { handle: resumeHandle } : {},
     contextWindowCompression: { slidingWindow: {} },

@@ -1,141 +1,112 @@
-# Gemini Live Audio Next.js Template
+# Gemini Live Audio — Next.js Starter
 
-A production-aware starter for building realtime voice applications with Gemini Live, Next.js, React, and shadcn/ui.
+A working voice chat app for the Google Gemini Live API. Clone it, drop in your API key, run `pnpm dev`, and you've got a realtime voice agent that can listen, talk back, see your screen, and call tools.
 
-This boilerplate gives you a working realtime voice chat app backed by the Google Gemini Live API. It includes private server-side token creation, browser microphone streaming, Gemini audio playback, screen-share frame streaming, local chat threads, voice selection, and tool-call examples you can adapt for your own application.
-
-Recommended GitHub repository name: `gemini-live-audio-nextjs-template`.
+The fiddly parts are already done: ephemeral tokens so your key never touches the browser, a microphone worklet that resamples to the PCM format Gemini expects, session resumption that gracefully falls back to a transcript replay when the resume handle expires, and an inline tool-approval UX that pauses the model mid-flight until the user responds.
 
 ## Features
 
-- Next.js App Router application with React 19 and TypeScript.
-- Gemini Live API integration through the typed `@google/genai` SDK.
-- Server-side ephemeral token route so `GEMINI_API_KEY` never reaches the browser.
-- Browser microphone capture converted to raw PCM 16-bit, 16 kHz, mono.
-- Gemini audio playback for raw PCM 16-bit, 24 kHz, mono responses.
-- Configurable Gemini Live model and voice through environment variables.
-- Local browser chat threads stored in local storage.
-- Session resumption support with saved transcript context fallback.
-- Screen-share frame streaming with selectable frame rates.
-- Built-in Google Search support plus approval-gated custom tools for URL crawling, URL opening, screen sharing, screenshots, and stopping voice chat.
-- shadcn/ui-style interface with mic, voice, transcript, tool, and sidebar components.
+- **Realtime voice loop.** Mic capture → 16 kHz Int16 PCM via an AudioWorklet → Gemini Live over WebSocket → 24 kHz PCM playback in the browser.
+- **Tool calls with inline approval.** Five custom tools plus Google Search. Sensitive tools surface an approval card directly in the transcript; the model genuinely waits.
+- **Screen share + screenshots.** Stream your desktop to Gemini at 0.2, 0.5, or 1 FPS, and capture downloadable stills straight from chat.
+- **Voice picker.** 30 Gemini voices, each tagged with a personality descriptor (Aoede / Breezy, Fenrir / Excitable, Charon / Informative, …), searchable.
+- **Model and resolution toggles.** Switch between the 3.1 Flash and 2.5 Flash Live previews and high/medium media resolution from the composer.
+- **Local thread history.** Chats persist in `localStorage`. Switch between them from the sidebar — no database to set up.
+- **Session resumption with transcript fallback.** Uses Gemini's native resume handle when it's still valid; otherwise reconnects fresh and seeds the new session with the prior transcript, so the conversation continues.
 
 ## Tech Stack
 
-- Next.js 16 App Router
-- React 19
-- TypeScript
-- pnpm workspaces
-- Turborepo
-- Tailwind CSS
-- shadcn/ui and Radix UI primitives
-- Google Gemini Live API via `@google/genai`
+- Next.js 16 (App Router) with React 19 and TypeScript
+- pnpm workspaces, Turborepo
+- Tailwind 4, Radix UI primitives, shadcn-style components
+- `@google/genai` v1 for the Live API
+- Streamdown + Shiki for assistant markdown rendering
 
 ## Quick Start
 
-Install dependencies:
-
 ```bash
 pnpm install
-```
-
-Create your local environment file:
-
-```bash
 cp apps/web/.env.example apps/web/.env.local
-```
-
-Add your Google AI Studio API key to `apps/web/.env.local`:
-
-```bash
-GEMINI_API_KEY=your_google_ai_studio_api_key
-```
-
-Start the development server:
-
-```bash
+# then open apps/web/.env.local and paste in your key
 pnpm dev
 ```
 
-Open the app:
-
-```text
-http://localhost:5177
-```
+The dev server runs on `http://localhost:5177`. You'll need a Google AI Studio API key in `GEMINI_API_KEY` — everything else has a sensible default.
 
 ## Environment Variables
 
 | Variable | Required | Default | Description |
 | --- | --- | --- | --- |
-| `GEMINI_API_KEY` | Yes | None | Google AI Studio API key used only by the server to create Gemini Live ephemeral tokens. |
-| `GEMINI_LIVE_MODEL` | No | `gemini-3.1-flash-live-preview` | Gemini Live model used for realtime sessions. |
-| `GEMINI_LIVE_VOICE` | No | `Aoede` | Default Gemini Live voice name returned to the client. |
+| `GEMINI_API_KEY` | Yes | — | AI Studio API key. Server-side only — the browser never sees it. |
+| `GEMINI_LIVE_MODEL` | No | `gemini-3.1-flash-live-preview` | Default Live model. Users can switch from the composer. |
+| `GEMINI_LIVE_VOICE` | No | `Aoede` | Default voice name returned to the client on first load. |
 
 ## Project Structure
 
 ```text
 apps/
   web/
-    src/app/                 Next.js App Router pages and API routes
-    src/app/api/config       Public runtime model and voice config
-    src/app/api/live-token   Private Gemini ephemeral token route
-    src/app/api/crawl        Public URL crawler used by the tool-call example
-    src/components/          Realtime voice chat UI and shared UI primitives
-    src/lib/gemini.ts        Gemini server client and runtime config helpers
-    src/lib/live-tools.ts    Gemini Live tool declarations
-    public/audio-worklet.js  Microphone PCM conversion worklet
+    src/app/                                Next.js App Router pages and API routes
+    src/app/api/live-token/route.ts         Mints ephemeral Gemini Live tokens
+    src/app/api/config/route.ts             Exposes the default model + voice
+    src/app/api/crawl/route.ts              Sandboxed URL fetcher used by the crawl_url tool
+    src/components/realtime-voice-chat/     The voice UI: session hook, composer, transcript, sidebar
+    src/lib/gemini.ts                       Lazy Gemini client + runtime config
+    src/lib/live-tools.ts                   Tool declarations sent to Gemini
+    src/lib/live-models.ts                  Allow-list of Live models
+    public/audio-worklet.js                 Mic PCM resampler (runs on the audio thread)
 ```
 
 ## How It Works
 
-The browser asks the Next.js API route for a short-lived Gemini Live ephemeral token. The server creates that token with `GEMINI_API_KEY`, the selected model, voice settings, and tool declarations, then returns only the ephemeral token to the browser.
+The browser POSTs to `/api/live-token` with the model and media resolution it wants. The server validates both against an allow-list, then asks Gemini for a single-use ephemeral token that already has the full Live config baked in: response modality, tools, sliding-window context compression, VAD sensitivity, the lot ([apps/web/src/app/api/live-token/route.ts](apps/web/src/app/api/live-token/route.ts)). Tokens live for 30 minutes. The browser only ever holds the token — not your key.
 
-Once connected, the client captures microphone input, converts it to PCM audio, and streams it to Gemini Live through the `@google/genai` client. Gemini audio chunks are decoded and played in the browser while transcripts, tool calls, and system messages are added to the active local chat thread.
+Once the token comes back, the client connects to the Live WebSocket and waits for `setupComplete` before unmuting the mic. An AudioWorklet ([apps/web/public/audio-worklet.js](apps/web/public/audio-worklet.js)) resamples whatever the OS hands it down to 16 kHz Int16 PCM in 2048-sample chunks, which the session hook ([use-live-session.ts](apps/web/src/components/realtime-voice-chat/use-live-session.ts)) base64-encodes and ships off. Gemini's replies come back as inline PCM in `modelTurn` parts; they get queued on the output `AudioContext` and metered for the level bars.
 
-Chat threads are stored in browser local storage. The app can reuse recent Gemini session resumption handles when available and falls back to restoring saved transcript context when a resume handle is no longer valid.
+Tool calls go through the same hook. The model's `toolCall` events match against a small registry in [live-tools.ts](apps/web/src/lib/live-tools.ts). If the active permission mode is **Always ask**, the call is parked behind a Promise that the inline approval card resolves on click — the live session genuinely pauses until the user decides. On approval, the tool runs (either in the browser or by hitting an app API like `/api/crawl`) and the result is sent back as a `toolResponse`.
 
-The included tools show two common Live API patterns:
+Session resumption has two layers. Each new connection registers for Gemini's native resume handle. If that handle is still valid on reconnect, conversation state is preserved server-side. If it's expired or rejected, the client reconnects fresh and replays the saved transcript as initial client content, so the model picks up where it left off without the user noticing.
 
-- Gemini's native Google Search tool, which runs inside the Gemini API and is surfaced from grounding metadata after use.
-- Custom client-executed functions, which the app intercepts, shows to the user for inline approval, executes only after approval, and then sends a tool response back to Gemini.
+The included tools demonstrate two patterns — one Gemini-native, the rest client-executed:
 
-Custom tools currently include:
-
-| Tool | Behavior |
+| Tool | What it does |
 | --- | --- |
-| `crawl_url` | Calls the Next.js crawler route to fetch readable content from a public web page. |
-| `open_url` | Opens an approved public URL in a new browser tab. |
-| `screen_share` | Starts or stops the same screen-sharing flow as the toolbar button; when started, frames stream to Gemini at the selected frame rate. |
-| `take_screenshot` | Captures one frame from the active screen share and displays it in chat with a download button. |
-| `stop_voice_chat` | Stops the active Gemini Live voice chat after acknowledging the tool response. |
+| Google Search | Native Gemini tool; runs inside the API. Citations surface from grounding metadata. |
+| `crawl_url` | Calls `/api/crawl` to fetch and extract readable text from a public web page. |
+| `open_url` | Opens an approved URL in a new browser tab. |
+| `screen_share` | Starts or stops desktop sharing. Frames stream to Gemini at the picked FPS. |
+| `take_screenshot` | Grabs one frame from the active share and renders it in chat with a download button. |
+| `stop_voice_chat` | Ends the live session after acknowledging the tool call. |
 
 ## Customization
 
-- Change the default model with `GEMINI_LIVE_MODEL`.
-- Change the default voice with `GEMINI_LIVE_VOICE`.
-- Update the assistant behavior in `apps/web/src/components/realtime-voice-chat/use-live-session.ts`.
-- Add, remove, or change Live API tools in `apps/web/src/lib/live-tools.ts`.
-- Implement custom tool execution and approval behavior in `apps/web/src/components/realtime-voice-chat/use-live-session.ts`.
-- Replace the local-storage thread layer with your own database-backed persistence.
-- Adapt the shadcn/ui components under `apps/web/src/components` for your product interface.
+Most of what you'll want to tweak lives in a handful of files:
+
+- **Assistant behavior, tool execution, approval logic** → [use-live-session.ts](apps/web/src/components/realtime-voice-chat/use-live-session.ts)
+- **Tool catalog** → [live-tools.ts](apps/web/src/lib/live-tools.ts)
+- **Allowed models** → [live-models.ts](apps/web/src/lib/live-models.ts)
+- **Live config knobs (VAD, modalities, temperature)** → [live-token/route.ts](apps/web/src/app/api/live-token/route.ts)
+- **UI** — the components under [`apps/web/src/components/realtime-voice-chat/`](apps/web/src/components/realtime-voice-chat) are plain shadcn-style React; swap or restyle freely.
+- **Persistence** — thread storage is keyed off `localStorage` in [use-chat-threads.ts](apps/web/src/components/realtime-voice-chat/use-chat-threads.ts). Replace with your own backend when you're ready.
 
 ## Scripts
 
 ```bash
-pnpm dev
-pnpm build
-pnpm typecheck
-pnpm lint
+pnpm dev         # Next.js dev server on :5177
+pnpm build       # production build
+pnpm typecheck   # tsc --noEmit
+pnpm lint        # next lint
 ```
 
 ## Security Notes
 
-- Keep `GEMINI_API_KEY` on the server. Do not expose it through `NEXT_PUBLIC_*` variables or client-side code.
-- The browser receives one-use Gemini Live ephemeral tokens instead of the long-lived API key.
-- The example crawler only accepts public `http` and `https` URLs on default ports, blocks localhost and private IP ranges, limits redirects, caps response size, and extracts text from HTML.
-- Custom client-executed tools are approval-gated in the chat UI before they run.
-- Review tool implementations before adding privileged actions, internal network access, or user-specific data.
+A few things worth knowing before you put this in front of real users:
+
+- **`GEMINI_API_KEY` stays on the server.** It's read only by the token route and never bundled. Don't move it into a `NEXT_PUBLIC_*` variable.
+- **The browser only ever receives single-use ephemeral tokens.** They expire 30 minutes after issue and can only be claimed once.
+- **The crawler is deliberately paranoid.** It accepts only public `http`/`https` URLs on default ports, resolves DNS to verify the target isn't a private/loopback/link-local address (IPv4 and IPv6), follows at most 3 redirects with re-validation on each hop, caps responses at 1 MB and extracted text at 12k characters, times out at 8 seconds, and strips scripts/iframes before parsing. Anything you add to it should hold the same line.
+- **Default custom tools to approval.** Keep the composer's tool permission mode set to **Always ask** for anything that touches the network, the filesystem, or other users. Review every tool implementation before granting it privileged actions.
 
 ## License
 
-MIT. Add a `LICENSE` file before publishing the repository.
+MIT — see [LICENSE](LICENSE).

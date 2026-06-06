@@ -58,6 +58,10 @@ export type Status = "Idle" | "Preparing" | "Connecting" | "Live" | "Error";
 
 export type ScreenFrameRate = 0.2 | 0.5 | 1;
 
+export type ToolPermissionMode = "always-ask" | "always-allow";
+
+export type LiveMediaResolution = "medium" | "high";
+
 export type VoiceOption = {
   name: string;
   description: string;
@@ -74,6 +78,7 @@ export type VoiceChatState = {
   inputLevel: number;
   isScreenSharing: boolean;
   isStartingScreenShare: boolean;
+  mediaResolution: LiveMediaResolution;
   messages: Message[];
   model: string;
   outputLevel: number;
@@ -81,6 +86,7 @@ export type VoiceChatState = {
   screenShareError?: string;
   status: Status;
   textInput: string;
+  toolPermissionMode: ToolPermissionMode;
   threads: ChatThread[];
   voiceName: string;
 };
@@ -91,9 +97,11 @@ export type VoiceChatActions = {
   denyToolCall: (callId: string) => void;
   deleteThread: (threadId: string) => Promise<void>;
   selectThread: (threadId: string) => Promise<void>;
+  setMediaResolution: (mediaResolution: LiveMediaResolution) => void;
   setScreenFrameRate: (frameRate: ScreenFrameRate) => void;
   setModel: (model: string) => void;
   setTextInput: (value: string) => void;
+  setToolPermissionMode: (mode: ToolPermissionMode) => void;
   setVoiceName: (voiceName: string) => void;
   startScreenShare: () => Promise<void>;
   startSession: () => Promise<void>;
