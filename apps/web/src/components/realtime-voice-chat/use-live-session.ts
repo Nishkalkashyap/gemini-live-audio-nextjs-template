@@ -44,7 +44,7 @@ type ConnectOptions = {
   seedInitialContext: boolean;
 };
 
-export function useLiveSession(): VoiceChatContextValue {
+export function useLiveSession(initialChatId?: string): VoiceChatContextValue {
   const [status, setStatus] = useState<Status>("Idle");
   const [model, setModel] = useState("gemini-3.1-flash-live-preview");
   const [voiceName, setVoiceNameState] = useState("Aoede");
@@ -53,7 +53,7 @@ export function useLiveSession(): VoiceChatContextValue {
   const [outputLevel, setOutputLevel] = useState(0);
   const [screenFrameRate, setScreenFrameRateState] = useState<ScreenFrameRate>(1);
 
-  const chatThreads = useChatThreads();
+  const chatThreads = useChatThreads(initialChatId);
   const sessionRef = useRef<Session | undefined>(undefined);
   const isActiveRef = useRef(false);
   const sessionGenerationRef = useRef(0);

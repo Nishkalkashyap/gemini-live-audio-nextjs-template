@@ -3,9 +3,9 @@
 import { VoiceChatProvider } from "./context";
 import { VoiceChatView } from "./view";
 
-export function RealtimeVoiceChat() {
+export function RealtimeVoiceChat({ initialChatId }: { initialChatId?: string }) {
   return (
-    <VoiceChatProvider>
+    <VoiceChatProvider initialChatId={initialChatId}>
       <VoiceChatView.Layout>
         <VoiceChatView.Sidebar />
         <VoiceChatView.Main>

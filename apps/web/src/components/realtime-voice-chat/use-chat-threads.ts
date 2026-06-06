@@ -1,5 +1,6 @@
 "use client";
 
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { mergeTranscriptChunk } from "./audio-utils";
 import type { ChatThread, Message } from "./types";
@@ -14,13 +15,17 @@ type StoredThreads = {
   threads?: ChatThread[];
 };
 
-export function useChatThreads() {
+export function useChatThreads(routeThreadId?: string) {
+  const pathname = usePathname();
+  const router = useRouter();
   const initialState = useMemo(() => createInitialThreadState(), []);
   const [threads, setThreads] = useState<ChatThread[]>(initialState.threads);
   const [activeThreadId, setActiveThreadId] = useState(initialState.activeThreadId);
   const [hasLoadedStoredThreads, setHasLoadedStoredThreads] = useState(false);
 
   const transcriptRef = useRef<HTMLDivElement | null>(null);
+  const initialRouteThreadIdRef = useRef(routeThreadId);
+  const pendingNavigationThreadIdRef = useRef<string | undefined>(undefined);
   const activeUserMessageIdRef = useRef<string | undefined>(undefined);
   const activeUserTranscriptRef = useRef("");
   const activeModelMessageIdRef = useRef<string | undefined>(undefined);
@@ -46,17 +51,51 @@ export function useChatThreads() {
         0,
         MAX_THREADS
       );
-      const storedActiveThreadId =
-        stored.activeThreadId &&
-        storedThreads.some((thread) => thread.id === stored.activeThreadId)
-          ? stored.activeThreadId
-          : storedThreads[0].id;
+      const storedActiveThreadId = selectInitialActiveThreadId(
+        storedThreads,
+        initialRouteThreadIdRef.current,
+        stored.activeThreadId
+      );
 
       setThreads(storedThreads);
       setActiveThreadId(storedActiveThreadId);
     }
     setHasLoadedStoredThreads(true);
   }, []);
+
+  useEffect(() => {
+    if (!hasLoadedStoredThreads || !routeThreadId) {
+      return;
+    }
+
+    if (threads.some((thread) => thread.id === routeThreadId)) {
+      if (routeThreadId !== activeThreadId) {
+        resetActiveTranscripts();
+        setActiveThreadId(routeThreadId);
+      }
+      return;
+    }
+
+    router.replace(createThreadPath(activeThreadId));
+  }, [activeThreadId, hasLoadedStoredThreads, routeThreadId, router, threads]);
+
+  useEffect(() => {
+    if (!hasLoadedStoredThreads) {
+      return;
+    }
+
+    const targetPath = createThreadPath(activeThreadId);
+    if (pathname === targetPath) {
+      pendingNavigationThreadIdRef.current = undefined;
+      return;
+    }
+
+    if (pendingNavigationThreadIdRef.current === activeThreadId) {
+      return;
+    }
+
+    router.replace(targetPath);
+  }, [activeThreadId, hasLoadedStoredThreads, pathname, router]);
 
   useEffect(() => {
     if (!hasLoadedStoredThreads) {
@@ -70,6 +109,7 @@ export function useChatThreads() {
     resetActiveTranscripts();
     setThreads((current) => [thread, ...current].slice(0, MAX_THREADS));
     setActiveThreadId(thread.id);
+    navigateToThread(thread.id);
   }
 
   function selectThread(threadId: string) {
@@ -78,6 +118,12 @@ export function useChatThreads() {
     }
     resetActiveTranscripts();
     setActiveThreadId(threadId);
+    navigateToThread(threadId);
+  }
+
+  function navigateToThread(threadId: string) {
+    pendingNavigationThreadIdRef.current = threadId;
+    router.push(createThreadPath(threadId));
   }
 
   function addMessage(role: Message["role"], text: string) {
@@ -199,6 +245,22 @@ function createInitialThreadState() {
   return { activeThreadId: thread.id, threads: [thread] };
 }
 
+function selectInitialActiveThreadId(
+  threads: ChatThread[],
+  routeThreadId: string | undefined,
+  storedActiveThreadId: string | undefined
+) {
+  if (routeThreadId && threads.some((thread) => thread.id === routeThreadId)) {
+    return routeThreadId;
+  }
+
+  if (storedActiveThreadId && threads.some((thread) => thread.id === storedActiveThreadId)) {
+    return storedActiveThreadId;
+  }
+
+  return threads[0].id;
+}
+
 function readStoredThreads() {
   try {
     const value = window.localStorage.getItem(STORAGE_KEY);
@@ -270,4 +332,8 @@ function sortThreads(threads: ChatThread[]) {
 
 function createId() {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
+}
+
+function createThreadPath(threadId: string) {
+  return `/chat/${encodeURIComponent(threadId)}`;
 }
