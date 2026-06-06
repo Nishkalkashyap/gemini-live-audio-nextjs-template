@@ -11,7 +11,7 @@ import {
   Square,
   Trash2
 } from "lucide-react";
-import { type ComponentProps, type ReactNode } from "react";
+import { type ComponentProps, type ReactNode, useEffect, useState } from "react";
 import {
   Conversation,
   ConversationContent,
@@ -297,11 +297,16 @@ function ToolMessage({ message }: { message: Message }) {
       : undefined;
   const toolApproval =
     message.toolStatus === "approval-requested" ? message.toolApproval : undefined;
+  const [isOpen, setIsOpen] = useState(Boolean(toolApproval));
+
+  useEffect(() => {
+    setIsOpen(Boolean(toolApproval));
+  }, [toolApproval, message.toolStatus]);
 
   return (
     <AIMessage from="assistant" className="max-w-3xl">
       <MessageContent className="w-full">
-        <Tool className="bg-card/40">
+        <Tool className="bg-card/40" open={isOpen} onOpenChange={setIsOpen}>
           <ToolHeader
             type="dynamic-tool"
             state={state}
