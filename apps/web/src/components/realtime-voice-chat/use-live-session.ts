@@ -15,7 +15,7 @@ import {
 } from "@google/genai";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DEFAULT_LIVE_MODEL_ID } from "@/lib/live-models";
-import { CRAWL_URL_FUNCTION_NAME, liveTools } from "@/lib/live-tools";
+import { CRAWL_URL_FUNCTION_NAME, OPEN_URL_FUNCTION_NAME, liveTools } from "@/lib/live-tools";
 import { arrayBufferToBase64 } from "./audio-utils";
 import type {
   AppConfig,
@@ -567,32 +567,32 @@ export function useLiveSession(initialChatId?: string): VoiceChatContextValue {
         };
 
         try {
-        const toolCallId = getToolCallId(functionCall);
-        const sensitiveTool = getSensitiveTool(functionCall.name);
-        const toolLabel = sensitiveTool?.label ?? functionCall.name ?? "unknown";
-        const toolMessageId = chatThreads.addToolMessage({
-          text: sensitiveTool ? `Approval needed: ${toolLabel}` : `Using tool: ${toolLabel}`,
-          toolApproval: sensitiveTool?.createApproval(functionCall, toolCallId),
-          toolName: functionCall.name,
-          toolRequestMarkdown: formatToolMarkdown({
+          const toolCallId = getToolCallId(functionCall);
+          const sensitiveTool = getSensitiveTool(functionCall.name);
+          const toolLabel = sensitiveTool?.label ?? functionCall.name ?? "unknown";
+          const toolMessageId = chatThreads.addToolMessage({
+            text: sensitiveTool ? `Approval needed: ${toolLabel}` : `Using tool: ${toolLabel}`,
+            toolApproval: sensitiveTool?.createApproval(functionCall, toolCallId),
+            toolName: functionCall.name,
+            toolRequestMarkdown: formatToolMarkdown({
+              id: functionCall.id,
+              name: functionCall.name,
+              args: functionCall.args ?? {}
+            }),
+            toolStatus: sensitiveTool ? "approval-requested" : "running"
+          });
+          const response = await runToolWithOptionalApproval(
+            functionCall,
+            toolMessageId,
+            toolCallId,
+            sensitiveTool
+          );
+
+          return {
             id: functionCall.id,
             name: functionCall.name,
-            args: functionCall.args ?? {}
-          }),
-          toolStatus: sensitiveTool ? "approval-requested" : "running"
-        });
-        const response = await runToolWithOptionalApproval(
-          functionCall,
-          toolMessageId,
-          toolCallId,
-          sensitiveTool
-        );
-
-        return {
-          id: functionCall.id,
-          name: functionCall.name,
-          response
-        };
+            response
+          };
         } catch (error) {
           const response = {
             error: "Tool execution failed before completion.",
@@ -655,11 +655,15 @@ export function useLiveSession(initialChatId?: string): VoiceChatContextValue {
   }
 
   async function runTool(functionCall: FunctionCall): Promise<ToolResponsePayload> {
-    if (functionCall.name !== CRAWL_URL_FUNCTION_NAME) {
-      return { error: `Unknown function: ${functionCall.name ?? "unnamed"}` };
+    if (functionCall.name === CRAWL_URL_FUNCTION_NAME) {
+      return executeCrawlUrl(functionCall);
     }
 
-    return executeCrawlUrl(functionCall);
+    if (functionCall.name === OPEN_URL_FUNCTION_NAME) {
+      return executeOpenUrl(functionCall);
+    }
+
+    return { error: `Unknown function: ${functionCall.name ?? "unnamed"}` };
   }
 
   async function executeCrawlUrl(functionCall: FunctionCall): Promise<ToolResponsePayload> {
@@ -687,22 +691,63 @@ export function useLiveSession(initialChatId?: string): VoiceChatContextValue {
     }
   }
 
+  async function executeOpenUrl(functionCall: FunctionCall): Promise<ToolResponsePayload> {
+    const url = getFunctionCallUrl(functionCall);
+    if (!url) {
+      return { error: "open_url requires a valid http or https url argument." };
+    }
+
+    const openedWindow = window.open(url.toString(), "_blank");
+    if (!openedWindow) {
+      return {
+        error: "Browser blocked the popup.",
+        detail: "Approve the tool call directly in the active tab and allow popups for this site."
+      };
+    }
+
+    try {
+      openedWindow.opener = null;
+      openedWindow.focus();
+    } catch {
+      // Some browser policies restrict interacting with a newly opened cross-origin tab.
+    }
+    return { opened: true, url: url.toString() };
+  }
+
   function getSensitiveTool(name: string | undefined) {
     if (name === CRAWL_URL_FUNCTION_NAME) {
       return {
-      name: CRAWL_URL_FUNCTION_NAME,
-      label: "Web crawl",
-      createApproval: (functionCall, callId) => {
-        const url = typeof functionCall.args?.url === "string" ? functionCall.args.url : "unknown URL";
-        return {
-          callId,
-          title: "Approve web crawl",
-          description: `Gemini wants to fetch and extract readable content from ${url}.`,
-          approveLabel: "Approve",
-          denyLabel: "Deny"
-        };
-      },
-      execute: executeCrawlUrl
+        name: CRAWL_URL_FUNCTION_NAME,
+        label: "Web crawl",
+        createApproval: (functionCall, callId) => {
+          const url = typeof functionCall.args?.url === "string" ? functionCall.args.url : "unknown URL";
+          return {
+            callId,
+            title: "Approve web crawl",
+            description: `Gemini wants to fetch and extract readable content from ${url}.`,
+            approveLabel: "Approve",
+            denyLabel: "Deny"
+          };
+        },
+        execute: executeCrawlUrl
+      } satisfies SensitiveToolDefinition;
+    }
+
+    if (name === OPEN_URL_FUNCTION_NAME) {
+      return {
+        name: OPEN_URL_FUNCTION_NAME,
+        label: "URL opener",
+        createApproval: (functionCall, callId) => {
+          const url = typeof functionCall.args?.url === "string" ? functionCall.args.url : "unknown URL";
+          return {
+            callId,
+            title: "Approve URL open",
+            description: `Gemini wants to open ${url} in a new browser tab.`,
+            approveLabel: "Open",
+            denyLabel: "Deny"
+          };
+        },
+        execute: executeOpenUrl
       } satisfies SensitiveToolDefinition;
     }
 
@@ -809,6 +854,23 @@ export function useLiveSession(initialChatId?: string): VoiceChatContextValue {
 
 function getToolCallId(functionCall: FunctionCall) {
   return functionCall.id ?? `${functionCall.name ?? "tool"}-${crypto.randomUUID()}`;
+}
+
+function getFunctionCallUrl(functionCall: FunctionCall) {
+  const url = functionCall.args?.url;
+  if (typeof url !== "string") {
+    return undefined;
+  }
+
+  try {
+    const parsedUrl = new URL(url);
+    if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+      return undefined;
+    }
+    return parsedUrl;
+  } catch {
+    return undefined;
+  }
 }
 
 function createLiveConnectConfig(
