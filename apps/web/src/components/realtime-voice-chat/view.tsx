@@ -13,8 +13,7 @@ import {
   Square,
   Trash2
 } from "lucide-react";
-import { type ComponentProps, type ReactNode, useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { type ComponentProps, type ReactNode, useEffect, useState } from "react";
 import {
   Conversation,
   ConversationContent,
@@ -553,94 +552,28 @@ function VoiceOptionItem({ voice }: { voice: VoiceOption }) {
 }
 
 function AdvancedSettingsMenu() {
-  const detailsRef = useRef<HTMLDetailsElement>(null);
-  const summaryRef = useRef<HTMLElement>(null);
-  const [isOpen, setIsOpen] = useState(false);
-  const [position, setPosition] = useState({ bottom: 0, right: 0 });
-
-  function updateMenuPosition() {
-    const triggerRect = summaryRef.current?.getBoundingClientRect();
-
-    if (!triggerRect) {
-      return;
-    }
-
-    setPosition({
-      bottom: Math.max(8, window.innerHeight - triggerRect.top + 8),
-      right: Math.max(8, window.innerWidth - triggerRect.right)
-    });
-  }
-
-  useEffect(() => {
-    const currentDetails = detailsRef.current;
-    if (!currentDetails) {
-      return;
-    }
-    const details = currentDetails;
-
-    function syncOpenState() {
-      const nextOpen = details.open;
-      if (nextOpen) {
-        updateMenuPosition();
-      }
-      setIsOpen(nextOpen);
-    }
-
-    const observer = new MutationObserver(syncOpenState);
-    details.addEventListener("toggle", syncOpenState);
-    observer.observe(details, { attributeFilter: ["open"], attributes: true });
-    syncOpenState();
-
-    return () => {
-      details.removeEventListener("toggle", syncOpenState);
-      observer.disconnect();
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
-
-    updateMenuPosition();
-    window.addEventListener("resize", updateMenuPosition);
-    window.addEventListener("scroll", updateMenuPosition, true);
-
-    return () => {
-      window.removeEventListener("resize", updateMenuPosition);
-      window.removeEventListener("scroll", updateMenuPosition, true);
-    };
-  }, [isOpen]);
-
   return (
-    <>
-      <details
-        className="relative shrink-0"
-        ref={detailsRef}
+    <details className="relative shrink-0">
+      <summary
+        aria-label="More chat settings"
+        className={cn(
+          buttonVariants({ variant: "ghost", size: "icon-sm" }),
+          "size-8 cursor-pointer list-none p-0 marker:hidden [&::-webkit-details-marker]:hidden"
+        )}
       >
-        <summary
-          aria-label="More chat settings"
-          className={cn(
-            buttonVariants({ variant: "ghost", size: "icon-sm" }),
-            "size-8 cursor-pointer list-none p-0 marker:hidden [&::-webkit-details-marker]:hidden"
-          )}
-          ref={summaryRef}
-        >
-          <Settings2 className="size-4" />
-        </summary>
-      </details>
-      {isOpen ? createPortal(<AdvancedSettingsPanel position={position} />, document.body) : null}
-    </>
+        <Settings2 className="size-4" />
+      </summary>
+      <AdvancedSettingsPanel />
+    </details>
   );
 }
 
-function AdvancedSettingsPanel({ position }: { position: { bottom: number; right: number } }) {
+function AdvancedSettingsPanel() {
   return (
     <div
       role="dialog"
       aria-label="More chat settings"
-      className="fixed z-50 grid w-72 gap-3 rounded-lg bg-popover p-3 text-sm text-popover-foreground shadow-md ring-1 ring-foreground/10"
-      style={{ bottom: position.bottom, right: position.right }}
+      className="fixed bottom-44 left-1/2 z-50 grid w-[calc(100vw-2rem)] max-w-72 -translate-x-1/2 gap-3 rounded-lg bg-popover p-3 text-sm text-popover-foreground shadow-md ring-1 ring-foreground/10"
     >
       <div className="grid gap-1">
         <div className="text-xs font-medium text-muted-foreground">Microphone</div>
