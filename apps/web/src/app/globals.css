@@ -272,6 +272,34 @@ h1 {
   padding: 28px;
 }
 
+.transcript.empty {
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.empty-transcript {
+  width: min(640px, 100%);
+  margin-top: -8vh;
+  text-align: center;
+}
+
+.empty-transcript h2 {
+  margin: 0;
+  color: #f1f1ec;
+  font-size: 34px;
+  font-weight: 500;
+  line-height: 1.15;
+}
+
+.empty-transcript p {
+  max-width: 480px;
+  margin: 14px auto 0;
+  color: #a8a8a0;
+  font-size: 15px;
+  line-height: 1.55;
+}
+
 .transcript-inner {
   display: flex;
   width: min(900px, 100%);

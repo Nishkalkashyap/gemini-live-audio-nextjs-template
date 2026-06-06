@@ -99,17 +99,31 @@ function Transcript() {
     meta: { transcriptRef },
     state: { messages }
   } = useVoiceChat();
+  const hasMessages = messages.length > 0;
 
   return (
-    <div className="transcript" ref={transcriptRef} aria-live="polite">
-      <div className="transcript-inner">
-        {messages.map((message) => (
-          <div className={`message ${message.role}`} key={message.id}>
-            {message.role === "tool" ? <ToolMessage message={message} /> : message.text}
-          </div>
-        ))}
-      </div>
+    <div className={`transcript${hasMessages ? "" : " empty"}`} ref={transcriptRef} aria-live="polite">
+      {hasMessages ? (
+        <div className="transcript-inner">
+          {messages.map((message) => (
+            <div className={`message ${message.role}`} key={message.id}>
+              {message.role === "tool" ? <ToolMessage message={message} /> : message.text}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <EmptyTranscript />
+      )}
     </div>
+  );
+}
+
+function EmptyTranscript() {
+  return (
+    <section className="empty-transcript" aria-label="Getting started">
+      <h2>Ready when you are</h2>
+      <p>Ask a question, talk through an idea, or bring your screen into the conversation.</p>
+    </section>
   );
 }
 

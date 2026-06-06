@@ -7,7 +7,7 @@ import type { ChatThread, Message } from "./types";
 
 const STORAGE_KEY = "gemini-live-chat-threads";
 const MAX_THREADS = 50;
-const INITIAL_SYSTEM_MESSAGE =
+const LEGACY_SETUP_MESSAGE =
   "Add your API key to .env.local, run pnpm install, then start a session.";
 
 type StoredThreads = {
@@ -47,7 +47,7 @@ export function useChatThreads(routeThreadId?: string) {
   useEffect(() => {
     const stored = readStoredThreads();
     if (stored?.threads?.length) {
-      const storedThreads = sortThreads(stored.threads.map(normalizeThreadTitle)).slice(
+      const storedThreads = sortThreads(stored.threads.map(normalizeStoredThread)).slice(
         0,
         MAX_THREADS
       );
@@ -312,10 +312,19 @@ function createEmptyThread(timestamp = Date.now(), id = createId()): ChatThread 
   return {
     id,
     title: "New chat",
-    messages: [{ id: createId(), role: "system", text: INITIAL_SYSTEM_MESSAGE }],
+    messages: [],
     createdAt: timestamp,
     updatedAt: timestamp
   };
+}
+
+function normalizeStoredThread(thread: ChatThread): ChatThread {
+  return normalizeThreadTitle({
+    ...thread,
+    messages: thread.messages.filter(
+      (message) => !(message.role === "system" && message.text === LEGACY_SETUP_MESSAGE)
+    )
+  });
 }
 
 function upsertMessage(
