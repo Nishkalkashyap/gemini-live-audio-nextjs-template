@@ -1,5 +1,12 @@
 node_modules/
+.next/
+dist/
+.turbo/
 .env
+.env.*
+!.env.example
+!apps/**/.env.example
 .DS_Store
 npm-debug.log*
-pnpm-lock.yaml
+pnpm-debug.log*
+package-lock.json

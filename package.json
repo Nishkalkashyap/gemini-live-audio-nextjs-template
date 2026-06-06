@@ -2,20 +2,15 @@
   "name": "google-realtime-audio",
   "version": "0.1.0",
   "private": true,
-  "type": "module",
+  "packageManager": "pnpm@10.28.1",
   "scripts": {
-    "dev": "node src/server.js",
-    "build": "vite build",
-    "typecheck": "tsc --noEmit",
-    "start": "NODE_ENV=production node src/server.js"
-  },
-  "dependencies": {
-    "@google/genai": "^1.0.0",
-    "dotenv": "^16.4.7",
-    "express": "^4.21.2"
+    "build": "turbo build",
+    "dev": "turbo dev",
+    "typecheck": "turbo typecheck",
+    "lint": "turbo lint"
   },
   "devDependencies": {
-    "typescript": "^5.9.3",
-    "vite": "^7.2.7"
+    "turbo": "^2.8.0",
+    "typescript": "^5.9.3"
   }
 }

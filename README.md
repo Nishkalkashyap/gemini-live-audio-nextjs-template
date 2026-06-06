@@ -1,32 +1,38 @@
-# Google Realtime Audio Starter
+# Google Realtime Audio Monorepo
 
-Minimal browser + Node implementation of Google's Gemini Live API for realtime audio chat.
+Next.js + pnpm + Turborepo starter for Google's Gemini Live API realtime audio chat.
 
-The browser captures microphone audio, converts it to raw 16-bit PCM at 16 kHz, and streams it directly to Gemini over WebSocket. The Node server keeps `GEMINI_API_KEY` private and issues a short-lived ephemeral token for each browser session.
+The web app captures microphone audio, converts it to raw 16-bit PCM at 16 kHz, and streams it directly to Gemini with the typed `@google/genai` Live SDK. The Next.js API route keeps `GEMINI_API_KEY` private and issues a short-lived ephemeral token for each browser session.
 
-## Requirements
+## Structure
 
-- Node.js 20+
-- A Gemini API key from Google AI Studio
-- A browser with microphone access
+```text
+apps/
+  web/
+    src/app/                 Next.js App Router
+    src/app/api/config       public runtime config
+    src/app/api/live-token   private Gemini ephemeral token route
+    src/components/          realtime voice chat UI
+    public/audio-worklet.js  microphone PCM conversion
+```
 
 ## Setup
 
 ```bash
-cp .env.example .env
+pnpm install
+cp apps/web/.env.example apps/web/.env.local
 ```
 
-Put your API key in `.env`:
+Put your API key in `apps/web/.env.local`:
 
 ```bash
 GEMINI_API_KEY=your_google_ai_studio_api_key
 ```
 
-Install and run:
+Run the app:
 
 ```bash
-npm install
-npm run dev
+pnpm dev
 ```
 
 Open:
@@ -35,29 +41,17 @@ Open:
 http://localhost:5177
 ```
 
-## How It Works
-
-- `src/server.js` serves the app and exposes `POST /api/live-token`.
-- `/api/live-token` uses `@google/genai` to create a single-use ephemeral token constrained to the configured Live model.
-- `public/main.js` connects to the Live API WebSocket with that token.
-- `public/audio-worklet.js` resamples browser microphone audio to 16 kHz PCM chunks.
-- Gemini returns 24 kHz PCM audio chunks, which the browser schedules through the Web Audio API.
-
-## Configuration
-
-The defaults are in `.env.example`:
+## Scripts
 
 ```bash
-GEMINI_LIVE_MODEL=gemini-3.1-flash-live-preview
-GEMINI_LIVE_VOICE=Aoede
-PORT=5177
+pnpm dev
+pnpm build
+pnpm typecheck
 ```
-
-If your Google account only has access to another Live model, change `GEMINI_LIVE_MODEL` in `.env`.
 
 ## Notes
 
-- Do not expose a long-lived API key in frontend code.
-- Google documents Live API input audio as raw 16-bit PCM, little-endian, 16 kHz.
-- Google documents Live API output audio as raw 16-bit PCM, little-endian, 24 kHz.
-- The ephemeral token defaults here allow one new Live session and expire quickly.
+- The browser receives only a Gemini Live ephemeral token, not the long-lived API key.
+- Input audio is raw PCM 16-bit, 16 kHz, mono.
+- Output audio is raw PCM 16-bit, 24 kHz, mono.
+- The current monorepo has one package: `apps/web`.
