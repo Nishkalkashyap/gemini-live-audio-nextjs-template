@@ -7,6 +7,7 @@ import {
   GoogleGenAI,
   type GroundingMetadata,
   type LiveConnectConfig,
+  MediaResolution,
   Modality,
   StartSensitivity,
   type LiveServerMessage,
@@ -15,9 +16,16 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CRAWL_URL_FUNCTION_NAME, liveTools } from "@/lib/live-tools";
 import { arrayBufferToBase64 } from "./audio-utils";
-import type { AppConfig, Status, TokenPayload, VoiceChatContextValue } from "./types";
+import type {
+  AppConfig,
+  ScreenFrameRate,
+  Status,
+  TokenPayload,
+  VoiceChatContextValue
+} from "./types";
 import { useAudioIo } from "./use-audio-io";
 import { useChatThreads } from "./use-chat-threads";
+import { useScreenShare } from "./use-screen-share";
 
 const SYSTEM_INSTRUCTION =
   "You are a concise, helpful realtime voice assistant. Keep spoken responses brief unless the user asks for detail.";
@@ -43,6 +51,7 @@ export function useLiveSession(): VoiceChatContextValue {
   const [textInput, setTextInput] = useState("");
   const [inputLevel, setInputLevel] = useState(0);
   const [outputLevel, setOutputLevel] = useState(0);
+  const [screenFrameRate, setScreenFrameRateState] = useState<ScreenFrameRate>(1);
 
   const chatThreads = useChatThreads();
   const sessionRef = useRef<Session | undefined>(undefined);
@@ -57,6 +66,10 @@ export function useLiveSession(): VoiceChatContextValue {
     onInputLevel: setInputLevel,
     onOutputLevel: setOutputLevel,
     onPcmInput: handlePcmInput
+  });
+  const screenShare = useScreenShare({
+    frameRate: screenFrameRate,
+    onFrame: handleScreenFrame
   });
 
   useEffect(() => {
@@ -83,9 +96,13 @@ export function useLiveSession(): VoiceChatContextValue {
       state: {
         activeThreadId: chatThreads.activeThreadId,
         inputLevel,
+        isScreenSharing: screenShare.isScreenSharing,
+        isStartingScreenShare: screenShare.isStartingScreenShare,
         messages: chatThreads.messages,
         model,
         outputLevel,
+        screenFrameRate,
+        screenShareError: screenShare.screenShareError,
         status,
         textInput,
         threads: chatThreads.threads,
@@ -94,9 +111,12 @@ export function useLiveSession(): VoiceChatContextValue {
       actions: {
         createThread,
         selectThread,
+        setScreenFrameRate,
         setTextInput,
         setVoiceName,
+        startScreenShare,
         startSession,
+        stopScreenShare: screenShare.stopScreenShare,
         stopSession,
         submitText
       },
@@ -118,6 +138,11 @@ export function useLiveSession(): VoiceChatContextValue {
       isStarting,
       model,
       outputLevel,
+      screenFrameRate,
+      screenShare.isScreenSharing,
+      screenShare.isStartingScreenShare,
+      screenShare.screenShareError,
+      screenShare.stopScreenShare,
       status,
       textInput,
       voiceName
@@ -328,6 +353,7 @@ export function useLiveSession(): VoiceChatContextValue {
     const session = sessionRef.current;
     sessionGenerationRef.current += 1;
     isActiveRef.current = false;
+    screenShare.stopScreenShare();
     audio.stopCapture();
 
     closeSession(session);
@@ -338,6 +364,7 @@ export function useLiveSession(): VoiceChatContextValue {
   async function cleanup() {
     isActiveRef.current = false;
     sessionRef.current = undefined;
+    screenShare.stopScreenShare();
     await audio.cleanupAudio();
     chatThreads.resetActiveTranscripts();
   }
@@ -354,6 +381,15 @@ export function useLiveSession(): VoiceChatContextValue {
         mimeType: "audio/pcm;rate=16000"
       }
     });
+  }
+
+  function handleScreenFrame(frame: { data: string; mimeType: "image/jpeg" }) {
+    const session = sessionRef.current;
+    if (!isSessionActive(session)) {
+      return;
+    }
+
+    sendRealtimeInput(session, { video: frame });
   }
 
   function isCurrentSession(sessionGeneration: number) {
@@ -399,6 +435,7 @@ export function useLiveSession(): VoiceChatContextValue {
     const nextSessionGeneration = previousSessionGeneration + 1;
     sessionGenerationRef.current = nextSessionGeneration;
     isActiveRef.current = false;
+    screenShare.stopScreenShare();
     audio.stopCapture();
     closeSession(sessionRef.current);
     sessionRef.current = undefined;
@@ -470,6 +507,17 @@ export function useLiveSession(): VoiceChatContextValue {
   function setVoiceName(nextVoiceName: string) {
     setVoiceNameState(nextVoiceName);
     voiceNameRef.current = nextVoiceName;
+  }
+
+  function setScreenFrameRate(nextFrameRate: ScreenFrameRate) {
+    setScreenFrameRateState(nextFrameRate);
+  }
+
+  async function startScreenShare() {
+    if (!isSessionActive(sessionRef.current)) {
+      return;
+    }
+    await screenShare.startScreenShare();
   }
 
   async function handleToolCalls(functionCalls: FunctionCall[]) {
@@ -610,6 +658,7 @@ function createLiveConnectConfig(
   return {
     responseModalities: [Modality.AUDIO],
     temperature: 1.0,
+    mediaResolution: MediaResolution.MEDIA_RESOLUTION_MEDIUM,
     tools: liveTools,
     sessionResumption: resumeHandle ? { handle: resumeHandle } : {},
     contextWindowCompression: { slidingWindow: {} },

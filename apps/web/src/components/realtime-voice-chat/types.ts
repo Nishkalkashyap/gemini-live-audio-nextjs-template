@@ -32,6 +32,8 @@ export type ChatThread = {
 
 export type Status = "Idle" | "Preparing" | "Connecting" | "Live" | "Error";
 
+export type ScreenFrameRate = 0.2 | 0.5 | 1;
+
 export type VoiceOption = {
   name: string;
   description: string;
@@ -40,9 +42,13 @@ export type VoiceOption = {
 export type VoiceChatState = {
   activeThreadId: string;
   inputLevel: number;
+  isScreenSharing: boolean;
+  isStartingScreenShare: boolean;
   messages: Message[];
   model: string;
   outputLevel: number;
+  screenFrameRate: ScreenFrameRate;
+  screenShareError?: string;
   status: Status;
   textInput: string;
   threads: ChatThread[];
@@ -52,9 +58,12 @@ export type VoiceChatState = {
 export type VoiceChatActions = {
   createThread: () => Promise<void>;
   selectThread: (threadId: string) => Promise<void>;
+  setScreenFrameRate: (frameRate: ScreenFrameRate) => void;
   setTextInput: (value: string) => void;
   setVoiceName: (voiceName: string) => void;
+  startScreenShare: () => Promise<void>;
   startSession: () => Promise<void>;
+  stopScreenShare: () => void;
   stopSession: () => Promise<void>;
   submitText: () => void;
 };

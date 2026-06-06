@@ -1,6 +1,6 @@
 "use client";
 
-import { Mic, Plus, Send, Square } from "lucide-react";
+import { Mic, Plus, ScreenShare, ScreenShareOff, Send, Square } from "lucide-react";
 import { type FormEvent, type ReactNode } from "react";
 import {
   Select,
@@ -10,7 +10,14 @@ import {
   SelectTrigger
 } from "@/components/ui/select";
 import { useVoiceChat } from "./context";
+import type { ScreenFrameRate } from "./types";
 import { VOICE_OPTIONS } from "./voice-options";
+
+const SCREEN_FRAME_RATE_OPTIONS: Array<{ label: string; value: ScreenFrameRate }> = [
+  { label: "0.2 FPS", value: 0.2 },
+  { label: "0.5 FPS", value: 0.5 },
+  { label: "1 FPS", value: 1 }
+];
 
 function Layout({ children }: { children: ReactNode }) {
   return <main className="chat-app">{children}</main>;
@@ -159,6 +166,8 @@ function Composer() {
         <button className="icon-button" type="submit" disabled={!canSendText} aria-label="Send" title="Send">
           <Send aria-hidden="true" size={18} />
         </button>
+        <ScreenFrameRateSelect />
+        <ScreenShareControls />
         <VoiceControls />
       </form>
       <AudioMeters />
@@ -197,6 +206,75 @@ function VoiceSelect() {
         </SelectGroup>
       </SelectContent>
     </Select>
+  );
+}
+
+function ScreenFrameRateSelect() {
+  const {
+    actions: { setScreenFrameRate },
+    meta: { isLive },
+    state: { isStartingScreenShare, screenFrameRate }
+  } = useVoiceChat();
+
+  return (
+    <Select
+      value={String(screenFrameRate)}
+      onValueChange={(value) => setScreenFrameRate(parseScreenFrameRate(value))}
+      disabled={!isLive || isStartingScreenShare}
+    >
+      <SelectTrigger
+        className="screen-rate-trigger"
+        aria-label="Screen frame rate"
+        title="Screen frame rate"
+      >
+        <span>{formatFrameRate(screenFrameRate)}</span>
+      </SelectTrigger>
+      <SelectContent className="screen-rate-content" align="end" sideOffset={10}>
+        <SelectGroup>
+          {SCREEN_FRAME_RATE_OPTIONS.map((option) => (
+            <SelectItem key={option.value} value={String(option.value)}>
+              {option.label}
+            </SelectItem>
+          ))}
+        </SelectGroup>
+      </SelectContent>
+    </Select>
+  );
+}
+
+function ScreenShareControls() {
+  const {
+    actions: { startScreenShare, stopScreenShare },
+    meta: { isLive },
+    state: { isScreenSharing, isStartingScreenShare }
+  } = useVoiceChat();
+  const isDisabled = !isLive || isStartingScreenShare;
+
+  if (isScreenSharing) {
+    return (
+      <button
+        className="icon-button screen-button active"
+        type="button"
+        onClick={stopScreenShare}
+        aria-label="Stop screen sharing"
+        title="Stop screen sharing"
+      >
+        <ScreenShareOff aria-hidden="true" size={18} />
+      </button>
+    );
+  }
+
+  return (
+    <button
+      className="icon-button screen-button"
+      type="button"
+      onClick={() => void startScreenShare()}
+      disabled={isDisabled}
+      aria-label="Start screen sharing"
+      title="Start screen sharing"
+    >
+      <ScreenShare aria-hidden="true" size={18} />
+    </button>
   );
 }
 
@@ -254,7 +332,7 @@ function AudioMeters() {
 
 function ConnectionStatus() {
   const {
-    state: { status, voiceName }
+    state: { isScreenSharing, screenFrameRate, screenShareError, status, voiceName }
   } = useVoiceChat();
 
   return (
@@ -263,8 +341,34 @@ function ConnectionStatus() {
       <span>{status}</span>
       <span className="status-separator" aria-hidden="true" />
       <span>{voiceName}</span>
+      {isScreenSharing ? (
+        <>
+          <span className="status-separator" aria-hidden="true" />
+          <span>Screen {formatFrameRate(screenFrameRate)}</span>
+        </>
+      ) : null}
+      {screenShareError ? (
+        <>
+          <span className="status-separator" aria-hidden="true" />
+          <span>{screenShareError}</span>
+        </>
+      ) : null}
     </div>
   );
+}
+
+function parseScreenFrameRate(value: string): ScreenFrameRate {
+  if (value === "0.2") {
+    return 0.2;
+  }
+  if (value === "0.5") {
+    return 0.5;
+  }
+  return 1;
+}
+
+function formatFrameRate(value: ScreenFrameRate) {
+  return `${value} FPS`;
 }
 
 function formatThreadTime(timestamp: number) {

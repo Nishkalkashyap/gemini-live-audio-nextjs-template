@@ -1,6 +1,7 @@
 import {
   EndSensitivity,
   type LiveConnectConfig,
+  MediaResolution,
   Modality,
   StartSensitivity
 } from "@google/genai";
@@ -30,6 +31,7 @@ export async function POST() {
     const liveConnectConfig: LiveConnectConfigWithInitialHistory = {
       responseModalities: [Modality.AUDIO],
       temperature: 1.0,
+      mediaResolution: MediaResolution.MEDIA_RESOLUTION_MEDIUM,
       tools: liveTools,
       sessionResumption: {},
       contextWindowCompression: { slidingWindow: {} },

@@ -386,7 +386,7 @@ h1 {
 
 .composer-form {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 150px 44px 44px;
+  grid-template-columns: minmax(0, 1fr) 150px 78px 44px 44px 44px;
   gap: 8px;
   align-items: center;
   border: 1px solid #2a2a2a;
@@ -423,6 +423,20 @@ h1 {
 
 .icon-button:hover {
   background: #3a3a3a;
+}
+
+.icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.screen-button.active {
+  background: #183831;
+  color: #9ff0dc;
+}
+
+.screen-button.active:hover {
+  background: #20483f;
 }
 
 .voice-button {
@@ -560,6 +574,28 @@ h1 {
   line-height: 1.25;
 }
 
+.screen-rate-trigger {
+  min-height: 44px;
+  width: 78px;
+  border: 1px solid #333333;
+  border-radius: 8px;
+  background: #262626;
+  color: #f6f6f2;
+  padding: 0 8px;
+  font-size: 12px;
+}
+
+.screen-rate-trigger:hover {
+  background: #303030;
+}
+
+.screen-rate-content {
+  min-width: 96px;
+  border-color: #303030;
+  background: #171717;
+  color: #f6f6f2;
+}
+
 code {
   border-radius: 4px;
   background: #252525;
@@ -627,18 +663,23 @@ code {
   }
 
   .composer-form {
-    grid-template-columns: minmax(0, 1fr) 126px 42px 42px;
+    grid-template-columns: minmax(0, 1fr) 126px 70px 42px 42px 42px;
   }
 }
 
 @media (max-width: 560px) {
   .composer-form {
-    grid-template-columns: minmax(0, 1fr) 42px 42px;
+    grid-template-columns: minmax(0, 1fr) 66px 42px 42px 42px;
   }
 
   .voice-select-trigger {
     grid-column: 1 / -1;
     grid-row: 2;
+  }
+
+  .screen-rate-trigger {
+    width: 66px;
+    font-size: 11px;
   }
 
   .meter-row {
