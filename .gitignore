@@ -2,6 +2,7 @@ node_modules/
 .next/
 dist/
 .turbo/
+apps/web/tsconfig.tsbuildinfo
 .env
 .env.*
 !.env.example
