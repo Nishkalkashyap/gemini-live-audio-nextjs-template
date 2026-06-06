@@ -1,16 +1,95 @@
 "use client";
 
-import { Mic, Plus, ScreenShare, ScreenShareOff, Send, Square, Trash2 } from "lucide-react";
-import { type FormEvent, type ReactNode } from "react";
+import {
+  CircleAlert,
+  Info,
+  Mic,
+  Mic2,
+  Plus,
+  ScreenShare,
+  ScreenShareOff,
+  Square,
+  Trash2
+} from "lucide-react";
+import { type ComponentProps, type ReactNode } from "react";
+import {
+  Conversation,
+  ConversationContent,
+  ConversationEmptyState,
+  ConversationScrollButton
+} from "@/components/ai-elements/conversation";
+import {
+  Message as AIMessage,
+  MessageContent,
+  MessageResponse
+} from "@/components/ai-elements/message";
+import {
+  MicSelector,
+  MicSelectorContent,
+  MicSelectorEmpty,
+  MicSelectorInput,
+  MicSelectorItem,
+  MicSelectorLabel,
+  MicSelectorList,
+  MicSelectorTrigger,
+  MicSelectorValue
+} from "@/components/ai-elements/mic-selector";
+import {
+  PromptInput,
+  PromptInputBody,
+  PromptInputButton,
+  PromptInputFooter,
+  PromptInputSubmit,
+  PromptInputTextarea,
+  PromptInputTools
+} from "@/components/ai-elements/prompt-input";
+import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from "@/components/ai-elements/tool";
+import {
+  useVoiceSelector,
+  VoiceSelector,
+  VoiceSelectorAttributes,
+  VoiceSelectorBullet,
+  VoiceSelectorContent,
+  VoiceSelectorDescription,
+  VoiceSelectorEmpty,
+  VoiceSelectorGroup,
+  VoiceSelectorInput,
+  VoiceSelectorItem,
+  VoiceSelectorList,
+  VoiceSelectorName,
+  VoiceSelectorTrigger
+} from "@/components/ai-elements/voice-selector";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
 import {
   Select,
   SelectContent,
   SelectGroup,
   SelectItem,
-  SelectTrigger
+  SelectTrigger,
+  SelectValue
 } from "@/components/ui/select";
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarInset,
+  SidebarMenu,
+  SidebarMenuAction,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarProvider,
+  SidebarSeparator,
+  SidebarTrigger
+} from "@/components/ui/sidebar";
+import { cn } from "@/lib/utils";
 import { useVoiceChat } from "./context";
-import type { ScreenFrameRate } from "./types";
+import type { Message, ScreenFrameRate, VoiceOption } from "./types";
 import { VOICE_OPTIONS } from "./voice-options";
 
 const SCREEN_FRAME_RATE_OPTIONS: Array<{ label: string; value: ScreenFrameRate }> = [
@@ -19,62 +98,83 @@ const SCREEN_FRAME_RATE_OPTIONS: Array<{ label: string; value: ScreenFrameRate }
   { label: "1 FPS", value: 1 }
 ];
 
+type ToolState = ComponentProps<typeof ToolHeader>["state"];
+
 function Layout({ children }: { children: ReactNode }) {
-  return <main className="chat-app">{children}</main>;
+  return (
+    <SidebarProvider className="h-svh overflow-hidden bg-background text-foreground">
+      {children}
+    </SidebarProvider>
+  );
 }
 
-function Sidebar() {
+function SidebarView() {
   const {
     actions: { createThread, deleteThread, selectThread },
     state: { activeThreadId, threads }
   } = useVoiceChat();
 
   return (
-    <aside className="chat-sidebar" aria-label="Chat threads">
-      <div className="sidebar-brand">Gemini Live</div>
-      <button className="new-thread-button" type="button" onClick={() => void createThread()}>
-        <Plus aria-hidden="true" size={18} />
-        New chat
-      </button>
-      <div className="thread-section-label">Chats</div>
-      <nav className="thread-list" aria-label="Past chat history">
-        {threads.map((thread) => {
-          const isActive = thread.id === activeThreadId;
+    <Sidebar collapsible="offcanvas" className="border-sidebar-border">
+      <SidebarHeader>
+        <div className="flex min-h-9 items-center justify-between px-2">
+          <div className="min-w-0">
+            <div className="truncate text-sm font-semibold">Gemini Live</div>
+            <div className="text-xs text-muted-foreground">Realtime audio</div>
+          </div>
+        </div>
+        <Button className="w-full justify-start" variant="secondary" onClick={() => void createThread()}>
+          <Plus />
+          New chat
+        </Button>
+      </SidebarHeader>
+      <SidebarSeparator />
+      <SidebarContent>
+        <SidebarGroup>
+          <SidebarGroupLabel>Chats</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {threads.map((thread) => {
+                const isActive = thread.id === activeThreadId;
 
-          return (
-            <div className={`thread-row${isActive ? " active" : ""}`} key={thread.id}>
-              <button
-                aria-current={isActive ? "page" : undefined}
-                className="thread-button"
-                type="button"
-                onClick={() => void selectThread(thread.id)}
-              >
-                <span className="thread-title">{thread.title}</span>
-                <span className="thread-time">{formatThreadTime(thread.updatedAt)}</span>
-              </button>
-              <button
-                aria-label={`Delete chat: ${thread.title}`}
-                className="delete-thread-button"
-                title="Delete chat"
-                type="button"
-                onClick={() => void deleteThread(thread.id)}
-              >
-                <Trash2 aria-hidden="true" size={15} />
-              </button>
-            </div>
-          );
-        })}
-      </nav>
-    </aside>
+                return (
+                  <SidebarMenuItem key={thread.id}>
+                    <SidebarMenuButton
+                      isActive={isActive}
+                      size="lg"
+                      tooltip={thread.title}
+                      onClick={() => void selectThread(thread.id)}
+                    >
+                      <span className="grid min-w-0 gap-0.5">
+                        <span className="truncate">{thread.title}</span>
+                        <span className="text-xs font-normal text-muted-foreground">
+                          {formatThreadTime(thread.updatedAt)}
+                        </span>
+                      </span>
+                    </SidebarMenuButton>
+                    <SidebarMenuAction
+                      aria-label={`Delete chat: ${thread.title}`}
+                      showOnHover
+                      onClick={() => void deleteThread(thread.id)}
+                    >
+                      <Trash2 />
+                    </SidebarMenuAction>
+                  </SidebarMenuItem>
+                );
+              })}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+      </SidebarContent>
+      <SidebarFooter>
+        <div className="px-2 text-xs text-muted-foreground">{threads.length} saved chats</div>
+      </SidebarFooter>
+    </Sidebar>
   );
 }
 
 function Main({ children }: { children: ReactNode }) {
-  return (
-    <section className="chat-main" aria-label="Realtime audio chat">
-      {children}
-    </section>
-  );
+  return <SidebarInset className="h-svh min-w-0 overflow-hidden">{children}</SidebarInset>;
 }
 
 function Header() {
@@ -84,87 +184,103 @@ function Header() {
   const activeThread = threads.find((thread) => thread.id === activeThreadId);
 
   return (
-    <header className="chat-header">
-      <div>
-        <p className="eyebrow">Gemini Live API</p>
-        <h1>{activeThread?.title || "Realtime audio chat"}</h1>
+    <header className="flex h-16 shrink-0 items-center justify-between gap-3 border-b px-4 md:px-6">
+      <div className="flex min-w-0 items-center gap-2">
+        <SidebarTrigger className="md:hidden" />
+        <div className="min-w-0">
+          <div className="text-xs font-medium uppercase text-muted-foreground">Gemini Live API</div>
+          <h1 className="truncate text-base font-semibold md:text-lg">
+            {activeThread?.title || "Realtime audio chat"}
+          </h1>
+        </div>
       </div>
-      <div className="model-chip">{model}</div>
+      <Badge className="hidden max-w-72 truncate md:inline-flex" variant="secondary">
+        {model}
+      </Badge>
     </header>
   );
 }
 
 function Transcript() {
   const {
-    meta: { transcriptRef },
     state: { messages }
   } = useVoiceChat();
   const hasMessages = messages.length > 0;
 
   return (
-    <div className={`transcript${hasMessages ? "" : " empty"}`} ref={transcriptRef} aria-live="polite">
-      {hasMessages ? (
-        <div className="transcript-inner">
-          {messages.map((message) => (
-            <div className={`message ${message.role}`} key={message.id}>
-              {message.role === "tool" ? <ToolMessage message={message} /> : message.text}
-            </div>
-          ))}
-        </div>
-      ) : (
-        <EmptyTranscript />
-      )}
-    </div>
+    <Conversation className="min-h-0">
+      <ConversationContent className="mx-auto w-full max-w-4xl gap-5 px-4 py-6 md:px-6">
+        {hasMessages ? (
+          messages.map((message) => <TranscriptMessage key={message.id} message={message} />)
+        ) : (
+          <ConversationEmptyState
+            className="min-h-[calc(100svh-15rem)]"
+            icon={<Mic2 className="size-10" />}
+            title="Ready when you are"
+            description="Ask a question, talk through an idea, or bring your screen into the conversation."
+          />
+        )}
+      </ConversationContent>
+      <ConversationScrollButton />
+    </Conversation>
   );
 }
 
-function EmptyTranscript() {
-  return (
-    <section className="empty-transcript" aria-label="Getting started">
-      <h2>Ready when you are</h2>
-      <p>Ask a question, talk through an idea, or bring your screen into the conversation.</p>
-    </section>
-  );
-}
+function TranscriptMessage({ message }: { message: Message }) {
+  if (message.role === "tool") {
+    return <ToolMessage message={message} />;
+  }
 
-function ToolMessage({
-  message
-}: {
-  message: {
-    text: string;
-    toolName?: string;
-    toolRequestMarkdown?: string;
-    toolResponseMarkdown?: string;
-    toolStatus?: "running" | "done" | "error";
-  };
-}) {
-  const status = message.toolStatus ?? "done";
+  if (message.role === "system" || message.role === "error") {
+    const isError = message.role === "error";
 
-  return (
-    <details className="tool-accordion">
-      <summary>
-        <span className={`tool-status-dot ${status}`} aria-hidden="true" />
-        <span>{message.text}</span>
-        {message.toolName ? <span className="tool-name">{message.toolName}</span> : null}
-      </summary>
-      <div className="tool-accordion-body">
-        {message.toolRequestMarkdown ? (
-          <ToolMarkdownBlock label="Request" value={message.toolRequestMarkdown} />
-        ) : null}
-        {message.toolResponseMarkdown ? (
-          <ToolMarkdownBlock label="Response" value={message.toolResponseMarkdown} />
-        ) : null}
+    return (
+      <div
+        className={cn(
+          "mx-auto flex w-full max-w-3xl items-start gap-2 rounded-lg border bg-muted/30 p-3 text-sm",
+          isError && "border-destructive/40 bg-destructive/10 text-destructive"
+        )}
+        role={isError ? "alert" : "status"}
+      >
+        {isError ? <CircleAlert className="mt-0.5 size-4 shrink-0" /> : <Info className="mt-0.5 size-4 shrink-0" />}
+        <MessageResponse className="min-w-0">{message.text}</MessageResponse>
       </div>
-    </details>
+    );
+  }
+
+  return (
+    <AIMessage from={message.role === "user" ? "user" : "assistant"}>
+      <MessageContent>
+        <MessageResponse>{message.text}</MessageResponse>
+      </MessageContent>
+    </AIMessage>
   );
 }
 
-function ToolMarkdownBlock({ label, value }: { label: string; value: string }) {
+function ToolMessage({ message }: { message: Message }) {
+  const state = getToolState(message.toolStatus);
+  const input = parseToolMarkdown(message.toolRequestMarkdown);
+  const output = parseToolMarkdown(message.toolResponseMarkdown);
+  const errorText =
+    message.toolStatus === "error" ? getToolErrorText(output, message.toolResponseMarkdown) : undefined;
+
   return (
-    <section className="tool-markdown-block">
-      <div className="tool-markdown-label">{label}</div>
-      <pre>{value}</pre>
-    </section>
+    <AIMessage from="assistant" className="max-w-3xl">
+      <MessageContent className="w-full">
+        <Tool defaultOpen={message.toolStatus === "running"} className="bg-card/40">
+          <ToolHeader
+            type="dynamic-tool"
+            state={state}
+            toolName={message.toolName ?? "tool"}
+            title={message.text}
+          />
+          <ToolContent>
+            <ToolInput input={input} />
+            <ToolOutput output={output} errorText={errorText} />
+          </ToolContent>
+        </Tool>
+      </MessageContent>
+    </AIMessage>
   );
 }
 
@@ -172,32 +288,39 @@ function Composer() {
   const {
     actions: { setTextInput, submitText },
     meta: { canSendText },
-    state: { textInput }
+    state: { status, textInput }
   } = useVoiceChat();
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    submitText();
-  }
-
   return (
-    <div className="composer-dock">
-      <form className="composer-form" onSubmit={handleSubmit}>
-        <input
-          type="text"
-          autoComplete="off"
-          placeholder="Ask anything"
-          value={textInput}
-          onChange={(event) => setTextInput(event.target.value)}
-        />
-        <VoiceSelect />
-        <button className="icon-button" type="submit" disabled={!canSendText} aria-label="Send" title="Send">
-          <Send aria-hidden="true" size={18} />
-        </button>
-        <ScreenFrameRateSelect />
-        <ScreenShareControls />
-        <VoiceControls />
-      </form>
+    <div className="mx-auto w-full max-w-4xl shrink-0 px-4 pb-4 md:px-6">
+      <PromptInput
+        className="rounded-xl border bg-background shadow-lg"
+        onSubmit={(message) => {
+          setTextInput(message.text);
+          submitText();
+        }}
+      >
+        <PromptInputBody>
+          <PromptInputTextarea
+            value={textInput}
+            placeholder={canSendText ? "Ask anything" : "Start voice chat to send a message"}
+            onChange={(event) => setTextInput(event.currentTarget.value)}
+          />
+        </PromptInputBody>
+        <PromptInputFooter>
+          <PromptInputTools className="flex-wrap">
+            <VoiceSelect />
+            <MicSelectorPreview />
+            <ScreenFrameRateSelect />
+            <ScreenShareControls />
+            <VoiceControls />
+          </PromptInputTools>
+          <PromptInputSubmit
+            disabled={!canSendText || !textInput.trim()}
+            status={status === "Error" ? "error" : "ready"}
+          />
+        </PromptInputFooter>
+      </PromptInput>
       <AudioMeters />
       <ConnectionStatus />
     </div>
@@ -210,30 +333,78 @@ function VoiceSelect() {
     meta: { isLive, isStarting },
     state: { voiceName }
   } = useVoiceChat();
+  const isDisabled = isStarting || isLive;
 
   return (
-    <Select value={voiceName} onValueChange={setVoiceName} disabled={isStarting || isLive}>
-      <SelectTrigger className="voice-select-trigger" aria-label="Voice selector" title="Voice selector">
-        <span className="voice-select-current">{voiceName}</span>
-      </SelectTrigger>
-      <SelectContent className="voice-select-content" align="end" sideOffset={10}>
-        <SelectGroup>
-          {VOICE_OPTIONS.map((voice) => (
-            <SelectItem
-              className="voice-select-item"
-              key={voice.name}
-              textValue={`${voice.name} ${voice.description}`}
-              value={voice.name}
-            >
-              <span className="voice-select-option">
-                <span className="voice-select-name">{voice.name}</span>
-                <span className="voice-select-description">{voice.description}</span>
-              </span>
-            </SelectItem>
-          ))}
-        </SelectGroup>
-      </SelectContent>
-    </Select>
+    <VoiceSelector value={voiceName} onValueChange={(value) => value && setVoiceName(value)}>
+      <VoiceSelectorTrigger asChild>
+        <PromptInputButton disabled={isDisabled} tooltip="Voice selector">
+          <Mic className="size-4" />
+          <span className="max-w-24 truncate">{voiceName}</span>
+        </PromptInputButton>
+      </VoiceSelectorTrigger>
+      <VoiceSelectorContent title="Voice selector">
+        <VoiceSelectorInput placeholder="Search voices..." />
+        <VoiceSelectorList>
+          <VoiceSelectorEmpty>No voice found.</VoiceSelectorEmpty>
+          <VoiceSelectorGroup heading="Gemini voices">
+            {VOICE_OPTIONS.map((voice) => (
+              <VoiceOptionItem key={voice.name} voice={voice} />
+            ))}
+          </VoiceSelectorGroup>
+        </VoiceSelectorList>
+      </VoiceSelectorContent>
+    </VoiceSelector>
+  );
+}
+
+function VoiceOptionItem({ voice }: { voice: VoiceOption }) {
+  const { setOpen, setValue, value } = useVoiceSelector();
+
+  return (
+    <VoiceSelectorItem
+      value={`${voice.name} ${voice.description}`}
+      onSelect={() => {
+        setValue(voice.name);
+        setOpen(false);
+      }}
+    >
+      <div className="grid min-w-0 flex-1 gap-1">
+        <VoiceSelectorName>{voice.name}</VoiceSelectorName>
+        <VoiceSelectorAttributes>
+          <VoiceSelectorDescription>{voice.description}</VoiceSelectorDescription>
+          <VoiceSelectorBullet />
+          <VoiceSelectorDescription>Gemini</VoiceSelectorDescription>
+        </VoiceSelectorAttributes>
+      </div>
+      {value === voice.name ? <Badge variant="secondary">Selected</Badge> : null}
+    </VoiceSelectorItem>
+  );
+}
+
+function MicSelectorPreview() {
+  return (
+    <MicSelector>
+      <MicSelectorTrigger disabled>
+        <MicSelectorValue />
+      </MicSelectorTrigger>
+      <MicSelectorContent>
+        <MicSelectorInput />
+        <MicSelectorList>
+          {(devices) =>
+            devices.length ? (
+              devices.map((device) => (
+                <MicSelectorItem key={device.deviceId} value={device.deviceId}>
+                  <MicSelectorLabel device={device} />
+                </MicSelectorItem>
+              ))
+            ) : (
+              <MicSelectorEmpty />
+            )
+          }
+        </MicSelectorList>
+      </MicSelectorContent>
+    </MicSelector>
   );
 }
 
@@ -250,14 +421,10 @@ function ScreenFrameRateSelect() {
       onValueChange={(value) => setScreenFrameRate(parseScreenFrameRate(value))}
       disabled={!isLive || isStartingScreenShare}
     >
-      <SelectTrigger
-        className="screen-rate-trigger"
-        aria-label="Screen frame rate"
-        title="Screen frame rate"
-      >
-        <span>{formatFrameRate(screenFrameRate)}</span>
+      <SelectTrigger className="h-7 w-[5.5rem]" aria-label="Screen frame rate">
+        <SelectValue>{formatFrameRate(screenFrameRate)}</SelectValue>
       </SelectTrigger>
-      <SelectContent className="screen-rate-content" align="end" sideOffset={10}>
+      <SelectContent align="end">
         <SelectGroup>
           {SCREEN_FRAME_RATE_OPTIONS.map((option) => (
             <SelectItem key={option.value} value={String(option.value)}>
@@ -280,29 +447,27 @@ function ScreenShareControls() {
 
   if (isScreenSharing) {
     return (
-      <button
-        className="icon-button screen-button active"
-        type="button"
+      <PromptInputButton
+        tooltip="Stop screen sharing"
+        variant="default"
+        className="bg-primary text-primary-foreground ring-2 ring-primary/35 hover:bg-primary/90"
         onClick={stopScreenShare}
         aria-label="Stop screen sharing"
-        title="Stop screen sharing"
       >
-        <ScreenShareOff aria-hidden="true" size={18} />
-      </button>
+        <ScreenShareOff className="size-4" />
+      </PromptInputButton>
     );
   }
 
   return (
-    <button
-      className="icon-button screen-button"
-      type="button"
-      onClick={() => void startScreenShare()}
+    <PromptInputButton
+      tooltip="Start screen sharing"
       disabled={isDisabled}
+      onClick={() => void startScreenShare()}
       aria-label="Start screen sharing"
-      title="Start screen sharing"
     >
-      <ScreenShare aria-hidden="true" size={18} />
-    </button>
+      <ScreenShare className="size-4" />
+    </PromptInputButton>
   );
 }
 
@@ -314,75 +479,97 @@ function VoiceControls() {
 
   if (isLive || isStarting) {
     return (
-      <button
-        className="icon-button stop-button"
-        type="button"
+      <PromptInputButton
+        tooltip="Stop voice chat"
+        variant="destructive"
         onClick={() => void stopSession()}
         aria-label="Stop voice chat"
-        title="Stop voice chat"
       >
-        <Square aria-hidden="true" size={16} />
-      </button>
+        <Square className="size-4" />
+      </PromptInputButton>
     );
   }
 
   return (
-    <button
-      className="icon-button voice-button"
-      type="button"
+    <PromptInputButton
+      tooltip="Start voice chat"
+      variant="default"
       onClick={() => void startSession()}
       aria-label="Start voice chat"
-      title="Start voice chat"
     >
-      <Mic aria-hidden="true" size={18} />
-    </button>
+      <Mic className="size-4" />
+    </PromptInputButton>
   );
 }
 
 function AudioMeters() {
   const {
-    state: { inputLevel, outputLevel }
+    state: { inputLevel, outputLevel, status }
   } = useVoiceChat();
 
   return (
-    <div className="meter-row" aria-label="Audio levels">
-      <span
-        className="meter"
-        style={{ "--level": `${Math.round(inputLevel * 100)}%` } as React.CSSProperties}
-      />
-      <span
-        className="meter meter-output"
-        style={{ "--level": `${Math.round(outputLevel * 100)}%` } as React.CSSProperties}
-      />
+    <div
+      className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 px-1 pt-3"
+      aria-label="Audio levels"
+    >
+      <Progress value={Math.round(inputLevel * 100)} />
+      <Badge variant={status === "Error" ? "destructive" : status === "Live" ? "default" : "secondary"}>
+        {status}
+      </Badge>
+      <Progress value={Math.round(outputLevel * 100)} className="[&_[data-slot=progress-indicator]]:bg-amber-500" />
     </div>
   );
 }
 
 function ConnectionStatus() {
   const {
-    state: { isScreenSharing, screenFrameRate, screenShareError, status, voiceName }
+    state: { isScreenSharing, screenFrameRate, screenShareError }
   } = useVoiceChat();
 
+  if (!isScreenSharing && !screenShareError) {
+    return null;
+  }
+
   return (
-    <div className="connection-status">
-      <span className={`status-dot ${status.toLowerCase()}`} aria-hidden="true" />
-      <span>{status}</span>
-      <span className="status-separator" aria-hidden="true" />
-      <span>{voiceName}</span>
-      {isScreenSharing ? (
-        <>
-          <span className="status-separator" aria-hidden="true" />
-          <span>Screen {formatFrameRate(screenFrameRate)}</span>
-        </>
-      ) : null}
-      {screenShareError ? (
-        <>
-          <span className="status-separator" aria-hidden="true" />
-          <span>{screenShareError}</span>
-        </>
-      ) : null}
+    <div className="flex min-h-7 flex-wrap items-center gap-2 px-1 pt-2 text-xs text-muted-foreground">
+      {isScreenSharing ? <span>Screen {formatFrameRate(screenFrameRate)}</span> : null}
+      {screenShareError ? <span className="text-destructive">{screenShareError}</span> : null}
     </div>
   );
+}
+
+function getToolState(status: Message["toolStatus"]): ToolState {
+  if (status === "running") {
+    return "input-available";
+  }
+  if (status === "error") {
+    return "output-error";
+  }
+  return "output-available";
+}
+
+function parseToolMarkdown(value: string | undefined) {
+  if (!value) {
+    return undefined;
+  }
+
+  const match = value.trim().match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
+  const json = match?.[1] ?? value;
+
+  try {
+    return JSON.parse(json) as unknown;
+  } catch {
+    return value;
+  }
+}
+
+function getToolErrorText(output: unknown, fallback: string | undefined) {
+  if (output && typeof output === "object" && "error" in output) {
+    const error = (output as { error?: unknown }).error;
+    return typeof error === "string" ? error : JSON.stringify(error);
+  }
+
+  return fallback;
 }
 
 function parseScreenFrameRate(value: string): ScreenFrameRate {
@@ -416,6 +603,6 @@ export const VoiceChatView = {
   Header,
   Layout,
   Main,
-  Sidebar,
+  Sidebar: SidebarView,
   Transcript
 };
